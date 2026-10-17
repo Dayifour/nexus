@@ -73,7 +73,8 @@ secrets, append-only local SQLite event log. Each agent runs inside a process bo
 kill; macOS: process group; Windows: `taskkill` tree — the last two unverified). Git metadata is read-only inside the
 sandbox and host Git refuses repository configs that define commands. See the [threat model](docs/threat-model/README.md).
 
-## Develop
+
+The desktop workspace also includes a project explorer, Monaco editor, terminals, Git workflows, pull-request support, deployment planning, local event storage, secret handling through the OS keychain, and French/English UI and logs.
 
 Requirements: Node 24.18, pnpm 11 (never npm), Linux with `bwrap`, `socat` and unprivileged user namespaces for the
 sandbox tests.
@@ -90,6 +91,6 @@ Reproducible Linux build in Docker: `docker build -f Dockerfile.release --target
 Publishing: [`docs/RELEASING.md`](docs/RELEASING.md) · contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) ·
 guide for coding agents: [`CLAUDE.md`](CLAUDE.md) · security: [`SECURITY.md`](SECURITY.md).
 
-## License
+## License and notices
 
-Apache-2.0 — Copyright 2026 Dayifour. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Nexus AI is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for project and third-party notices. Copyright 2026 Dayifour.

@@ -1,24 +1,43 @@
-# Sécurité
+# Security Policy
 
-## État des garanties (11/10/2026)
+Nexus AI orchestrates local coding agents and can interact with developer tools, project files, and provider sessions. Security is a core design concern, but this is preview software and its protections have important platform-specific limits.
 
-| Plateforme | Isolation des agents | Statut |
-|---|---|---|
-| Ubuntu/Linux | bwrap + seccomp + cgroups v2 + proxy egress (ADR-003), testé sur hôte réel | préversion interne |
-| Windows | aucun backend vérifié | `sandbox-auto` refusé |
-| macOS | aucun backend vérifié | `sandbox-auto` refusé |
+## Supported security posture
 
-Conformément au cahier maître §12, Nexus AI **n'annonce pas « sandbox disponible »** tant que les tests de fuite, d'écriture, de réseau
-et de confinement n'ont pas réussi sur les trois systèmes cibles. Sans isolation vérifiée, les actions autonomes dangereuses sont refusées.
+| Platform | Agent isolation | Current posture |
+| --- | --- | --- |
+| Ubuntu / Linux | Bubblewrap, seccomp, cgroups v2, and an egress proxy | Verified on a real host; preview only |
+| Windows | No verified sandbox backend | `sandbox-auto` is refused |
+| macOS | No verified sandbox backend | `sandbox-auto` is refused |
 
-Décisions du propriétaire qui affectent la posture de sécurité (voir `.coordination/DECISIONS.md`) :
-- **D-1** : Claude sous abonnement fonctionne en mode manuel par défaut ; sa session de connexion n'est jamais montée dans un sandbox.
-- **D-4** : les fichiers `.env*` d'un projet sont visibles par défaut ; une option par projet les protège (divergence assumée avec UC-09).
-  Les secrets de l'hôte et les fichiers d'identifiants restent toujours inaccessibles aux agents.
+Nexus AI does not claim that sandboxing is available on a platform until containment, write, network, and escape tests have passed there. When verified isolation is unavailable, dangerous autonomous sandbox actions are refused.
 
-Modèle de menace, défenses et tests associés : `docs/threat-model/README.md`.
+Read the [threat model](docs/threat-model/README.md) for the trust boundaries, automated evidence, residual risks, and incident-response procedure. In particular, review the documented trade-offs around provider sessions and project `.env*` files before using preview builds with sensitive projects.
 
-## Signaler une vulnérabilité
+## Reporting a vulnerability
 
-Ne pas ouvrir d'issue publique. Contacter le propriétaire du projet en privé (canal à définir avant la première publication),
-avec une description, les étapes de reproduction et l'impact estimé. Ne pas joindre de secret réel.
+**Do not report security vulnerabilities in a public GitHub issue, discussion, pull request, or commit.**
+
+Nexus AI does not yet have a published, dedicated private vulnerability-reporting channel. Until one is enabled, contact the repository owner through the [Dayifour GitHub profile](https://github.com/Dayifour) and request a private reporting channel. Do not include exploit details, credentials, customer data, or proof-of-concept code in a public message.
+
+When a private channel is available, include:
+
+- a concise description of the vulnerability and affected component;
+- reproducible steps or a minimal, non-destructive proof of concept;
+- expected and actual security impact;
+- affected version, commit, platform, and configuration; and
+- any suggested mitigation, if known.
+
+Please give maintainers a reasonable opportunity to investigate and release a fix before public disclosure. We will acknowledge reports, assess severity and scope, communicate the remediation plan when possible, and credit reporters only with their permission.
+
+## Handling a suspected incident
+
+1. Stop active agents with **Stop agents**.
+2. Revoke the affected secret in **Connections and secrets**, then revoke it at the provider.
+3. Preserve the relevant redacted event log and run information for analysis.
+4. Switch the affected team to `manual` or `read-only` mode and disable `sandbox-auto`.
+5. Before a fix is accepted, add a regression test that reproduces the incident safely.
+
+## Scope
+
+This policy covers the source repository, official release artefacts when published, and the Nexus AI desktop application. Third-party CLIs, model providers, and dependencies should also be reported to their respective maintainers when the issue originates in their software.
