@@ -56,31 +56,72 @@ async function paletteCommandIds(): Promise<string[]> {
 
 /** Exécute une commande depuis la palette, puis referme toute boîte ouverte. */
 async function runFromPalette(id: string): Promise<void> {
+  // Une boîte restée ouverte (commande précédente lente à s'afficher) intercepterait le clic suivant.
+  await closeDialogs();
   await page.keyboard.press(`${mod}+Shift+P`);
   const input = page.getByPlaceholder("Tapez une commande…");
   await input.waitFor();
   await input.fill(id);
   await page.locator(`[data-command="${id}"]`).click();
   await input.waitFor({ state: "hidden" });
+  await settle();
   await closeDialogs();
 }
 
-/** Referme les boîtes de dialogue ouvertes (Échap), en attendant que chacune ait réellement disparu. */
-async function closeDialogs(): Promise<void> {
-  for (let i = 0; i < 3; i++) {
-    const count = await page.getByRole("dialog").count();
-    if (count === 0) return;
+/**
+ * La palette lance la commande dans un setTimeout(0) après sa fermeture : on laisse ce minuteur partir puis React
+ * peindre (deux images) avant de compter les boîtes ouvertes. Sans cela, une machine lente (CI) compte zéro boîte,
+ * puis la boîte apparaît et bloque la commande suivante.
+ */
+async function settle(): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())), 50),
+      ),
+  );
+}
+
+/**
+ * Referme les boîtes de dialogue ouvertes (Échap), en attendant que chacune ait réellement disparu. Une boîte qui
+ * s'affiche en retard est rattrapée (deux comptages séparés par une attente), une boîte qui ignore Échap est fermée
+ * par son bouton ; s'il en reste une, le test échoue ici en la nommant plutôt que plus loin sur un clic intercepté.
+ */
+async function closeDialogs(strict = true): Promise<void> {
+  const dialogs = page.getByRole("dialog");
+  for (let i = 0; i < 6; i++) {
+    await settle();
+    let count = await dialogs.count();
+    if (count === 0) {
+      await settle();
+      count = await dialogs.count();
+      if (count === 0) return;
+    }
     await page.keyboard.press("Escape");
     await page
-      .waitForFunction((n) => document.querySelectorAll('[role="dialog"]').length < n, count, { timeout: 2000 })
+      .waitForFunction((n) => document.querySelectorAll('[role="dialog"]').length < n, count, { timeout: 3000 })
       .catch(() => {});
   }
+  const close = page.locator('[role="dialog"] .modal-header button[aria-label="Fermer"]');
+  for (let i = 0; i < 3 && (await close.count()) > 0; i++)
+    await close
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {});
+  await dialogs
+    .first()
+    .waitFor({ state: "detached", timeout: 3000 })
+    .catch(() => {});
+  const left = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="dialog"]')].map((d) => d.textContent?.slice(0, 80) ?? ""),
+  );
+  if (strict) assert.deepEqual(left, [], `boîte restée ouverte malgré Échap : ${left.join(" | ")}`);
 }
 
 // Un test qui échoue en laissant une boîte de dialogue ouverte ne doit pas faire échouer tous les suivants.
 beforeEach(async () => {
   if (!page) return;
-  await closeDialogs();
+  await closeDialogs(false);
 });
 
 /** Commandes à effets externes (boîtes natives, fermeture du projet, langue) : non exécutées en boucle. */
