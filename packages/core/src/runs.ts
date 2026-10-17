@@ -36,7 +36,8 @@ export const runsProjector: Projector = {
         where: { id: e.aggregateId },
         data: {
           lastSequence: ev.sequence,
-          ...(ev.kind === "started" && ev.nativeSessionId && { nativeSessionId: ev.nativeSessionId }),
+          ...((ev.kind === "started" || ev.kind === "completed") &&
+            ev.nativeSessionId && { nativeSessionId: ev.nativeSessionId }),
         },
       });
       // Quota signalé par le CLI : instantané consultable dans la vue Consommation.

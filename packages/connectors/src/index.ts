@@ -17,6 +17,7 @@ export {
   CODEX_MANIFEST,
   CodexCliConnector,
   codexMcpArgs,
+  codexMcpConfig,
   codexSandboxArgs,
   createCodexNormalizer,
 } from "./cli/codex.ts";
@@ -29,3 +30,13 @@ export {
   supportsReadOnly,
   type GenericCliConfig,
 } from "./cli/generic.ts";
+export {
+  HERMES_NO_WRITE_ROOT,
+  HERMES_READ_ONLY_TOOLSETS,
+  hermesScope,
+  hermesUserHasHooks,
+  hermesUserHome,
+  injectHermesMcpServers,
+  parseHermesSessionId,
+  type HermesScope,
+} from "./cli/hermes.ts";

@@ -82,11 +82,37 @@ export function createCodexNormalizer(): OutputNormalizer & { stats(): { malform
 }
 
 /**
- * Codex ne reçoit pas de serveur MCP tant qu'une intégration réelle, sans configuration secrète dans argv, n'est pas
- * vérifiée. La configuration via `-c` exposait les jetons de capacité dans la table des processus.
+ * Serveurs MCP de Nexus pour Codex, sans secret dans argv ni CODEX_HOME de remplacement (la connexion et la
+ * configuration de l'utilisateur restent chargées) : `-c mcp_servers.<nom>.*` ne porte que la commande et le script ;
+ * les variables (socket, jeton du bus) sont dans l'environnement du processus Codex, que l'option `env_vars` de Codex
+ * transmet au serveur MCP (vérifié avec codex-cli 0.162). argv est lisible par tous les utilisateurs de la machine,
+ * l'environnement seulement par le propriétaire du processus.
  */
-export function codexMcpArgs(_servers: AgentTaskRequest["mcpServers"]): string[] {
-  return [];
+export function codexMcpConfig(servers: AgentTaskRequest["mcpServers"]): {
+  args: string[];
+  env: Record<string, string>;
+} {
+  const args: string[] = [];
+  const env: Record<string, string> = {};
+  for (const s of servers ?? []) {
+    const key = `mcp_servers.${s.name}`;
+    // Chaînes et tableaux TOML : la syntaxe JSON des chaînes échappées est un sous-ensemble valide.
+    args.push("-c", `${key}.command=${JSON.stringify(s.command)}`);
+    args.push("-c", `${key}.args=${JSON.stringify(s.args)}`);
+    args.push("-c", `${key}.env_vars=${JSON.stringify(Object.keys(s.env))}`);
+    // ask_lead peut attendre la réponse du chef.
+    args.push("-c", `${key}.tool_timeout_sec=300`);
+    // Outils de l'équipe approuvés d'office : en `exec`, personne ne peut répondre (sans cela, codex-cli 0.162
+    // refuse l'appel : « MCP tool call requires approval, but approval policy is never »).
+    args.push("-c", `${key}.default_tools_approval_mode="approve"`);
+    Object.assign(env, s.env);
+  }
+  return { args, env };
+}
+
+/** Arguments MCP de Codex (sans secret ; les variables sont données par `codexMcpConfig().env`). */
+export function codexMcpArgs(servers: AgentTaskRequest["mcpServers"]): string[] {
+  return codexMcpConfig(servers).args;
 }
 
 /** Options de bac à sable de Codex : complément de défense, jamais substitut à l'isolation OS. */
@@ -168,7 +194,7 @@ export class CodexCliConnector implements AgentConnector {
       args,
       stdin: req.prompt,
       cwd: req.workspacePath,
-      env: { ...this.#baseEnv },
+      env: { ...this.#baseEnv, ...codexMcpConfig(req.mcpServers).env },
       timeoutMs: req.timeoutMs,
       signal,
       normalizer: createCodexNormalizer(),

@@ -168,23 +168,24 @@ test("H3 : l'arrêt d'une mission n'annule que SES exécutions", async (t) => {
   assert.equal((await other).status, "cancelled");
 });
 
-test("tâche interrompue (redémarrage) : reprogrammée par l'ordonnanceur, reprise de la session native", async (t) => {
-  const a = new FakeConnector("fake-a", { kind: "complete", nativeSessionId: "n-1" });
-  const { core, agent, mission, task } = await setup(t, [a]);
-  const m = await mission();
-  const id = await task(m, await agent("fake-a"));
-  await core.runs!.execute(id, OWNER);
-  await core.missions.transition(id, "queued", OWNER);
-  await core.missions.transition(id, "interrupted", SYSTEM, { reason: "app_restarted" });
-  const dag = await core.missions.dagTasks(m);
-  assert.deepEqual(
-    schedule({ tasks: dag, maxParallel: 2, budgetAvailable: true, isPermitted: () => ({ ok: true }) }).retry,
-    [id],
-  );
-  await core.orchestrator!.runMission(m, OWNER);
-  assert.equal((await core.missions.getTask(id)).status, "completed");
-  assert.equal(a.requests.at(-1)?.resumedFrom, "n-1", "session native reprise");
-});
+for (const sessionAtEnd of [false, true])
+  test(`tâche interrompue (redémarrage) : reprogrammée par l'ordonnanceur, reprise de la session native${sessionAtEnd ? " (identifiant donné à la fin, comme Hermes)" : ""}`, async (t) => {
+    const a = new FakeConnector("fake-a", { kind: "complete", nativeSessionId: "n-1", sessionAtEnd });
+    const { core, agent, mission, task } = await setup(t, [a]);
+    const m = await mission();
+    const id = await task(m, await agent("fake-a"));
+    await core.runs!.execute(id, OWNER);
+    await core.missions.transition(id, "queued", OWNER);
+    await core.missions.transition(id, "interrupted", SYSTEM, { reason: "app_restarted" });
+    const dag = await core.missions.dagTasks(m);
+    assert.deepEqual(
+      schedule({ tasks: dag, maxParallel: 2, budgetAvailable: true, isPermitted: () => ({ ok: true }) }).retry,
+      [id],
+    );
+    await core.orchestrator!.runMission(m, OWNER);
+    assert.equal((await core.missions.getTask(id)).status, "completed");
+    assert.equal(a.requests.at(-1)?.resumedFrom, "n-1", "session native reprise");
+  });
 
 test("M5 : sorties regroupées sans perte ni désordre (séquences de run continues)", async (t) => {
   const a = new FakeConnector("fake-a", { kind: "complete" });

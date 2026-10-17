@@ -528,3 +528,15 @@ test("M7 : mode d'exécution choisi par tâche, même si deux tâches partagent 
   );
   assert.equal((await run(tM!)).exitCode, 0);
 });
+
+test("bus de l'équipe : tous les agents CLI le reçoivent (Codex et Hermes compris)", async () => {
+  const { BUS_CONNECTORS } = await import("../src/orchestra.ts");
+  assert.deepEqual([...BUS_CONNECTORS].sort(), [
+    "claude-cli",
+    "codex-cli",
+    "gemini-cli",
+    "hermes-cli",
+    "opencode-cli",
+    "qwen-cli",
+  ]);
+});

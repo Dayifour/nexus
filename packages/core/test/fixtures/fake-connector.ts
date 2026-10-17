@@ -2,7 +2,8 @@
 import type { AgentConnector, AgentEvent, AgentTaskRequest, ConnectorManifest, ProbeResult } from "@nexus/contracts";
 
 export type FakeScript =
-  | { kind: "complete"; text?: string; nativeSessionId?: string }
+  /** `sessionAtEnd` : identifiant natif donné par l'événement `completed` (comme Hermes), pas par `started`. */
+  | { kind: "complete"; text?: string; nativeSessionId?: string; sessionAtEnd?: boolean }
   | { kind: "fail"; code: "timeout" | "auth_required" | "cli_reported_error" | "network_error" }
   | { kind: "hang"; nativeSessionId?: string };
 
@@ -49,7 +50,9 @@ export class FakeConnector implements AgentConnector {
     yield {
       kind: "started",
       ...base(),
-      ...("nativeSessionId" in s && s.nativeSessionId && { nativeSessionId: s.nativeSessionId }),
+      ...("nativeSessionId" in s &&
+        s.nativeSessionId &&
+        !("sessionAtEnd" in s && s.sessionAtEnd) && { nativeSessionId: s.nativeSessionId }),
     };
     if (s.kind === "hang") {
       await new Promise<void>((resolve) => {
@@ -65,6 +68,11 @@ export class FakeConnector implements AgentConnector {
     }
     yield { kind: "output", ...base(), text: s.text ?? "fait", channel: "message" };
     yield { kind: "usage", ...base(), source: "reported", inputTokens: 10, outputTokens: 5 };
-    yield { kind: "completed", ...base(), resultRef: "fake" };
+    yield {
+      kind: "completed",
+      ...base(),
+      resultRef: "fake",
+      ...(s.sessionAtEnd && s.nativeSessionId && { nativeSessionId: s.nativeSessionId }),
+    };
   }
 }

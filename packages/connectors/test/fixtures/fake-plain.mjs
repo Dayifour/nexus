@@ -10,5 +10,7 @@ else {
   console.log("ligne 1");
   console.error("avertissement");
   console.log("ligne 2");
+  // Comme `hermes chat -Q` : identifiant de session sur stderr à la fin.
+  if (process.env.FAKE_SESSION) console.error(`\nsession_id: ${process.env.FAKE_SESSION}`);
   process.exit(Number(process.env.FAKE_EXIT ?? 0));
 }

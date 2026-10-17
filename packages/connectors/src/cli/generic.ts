@@ -1,13 +1,14 @@
 // Adaptateur CLI générique (FR-005) pour les CLI sans flux structuré vérifié (Gemini, Hermes, OpenCode, Qwen…).
 // Chaque ligne de sortie devient un événement `output` ; un code de sortie 0 termine la tâche. Maturité `beta` :
 // aucune capacité n'est revendiquée au-delà de « chat » tant qu'elle n'a pas été testée contre la version réelle.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentConnector, AgentEvent, AgentTaskRequest, ConnectorManifest, ProbeResult } from "@nexus/contracts";
 import { probeCli, type ProbeContext, type Runner } from "../probe.ts";
 import type { CliSignature } from "../signatures.ts";
 import { refuse } from "./claude.ts";
+import { hermesScope, parseHermesSessionId } from "./hermes.ts";
 import { runCliTask, type OutputNormalizer } from "./run-cli.ts";
 
 export type GenericCliConfig = {
@@ -28,6 +29,8 @@ export type GenericCliConfig = {
    * seule est refusée (jamais simulée) et `readOnlySupported` est faux (pas de rôle de chef / relecteur).
    */
   readOnlyArgs?: readonly string[];
+  /** Reprise native : arguments placés après `args` (ex. `--resume <id>`). Absent = pas de reprise native. */
+  resumeArgs?: (nativeSessionId: string) => string[];
 };
 
 /**
@@ -36,8 +39,17 @@ export type GenericCliConfig = {
  */
 export const GENERIC_INVOCATIONS: Record<string, Omit<GenericCliConfig, "signature">> = {
   // Vérifié en réel (Hermes Agent 0.18) : fichier créé, code 0.
-  // Aucun mode lecture seule (Hermes 0.18 : seulement `--yolo` ou des questions interactives) : pas de rôle de chef.
-  "hermes-cli": { args: ["chat", "-Q"], promptVia: "last-arg", promptFlag: "-q", freeArgs: ["--yolo"] },
+  // Lecture seule : jeux d'outils sans écriture (`-t`) et écriture de fichiers refusée (`HERMES_WRITE_SAFE_ROOT`),
+  // ajoutés par `hermesScope` ; serveur MCP de l'équipe par la portée gérée de Hermes (voir hermes.ts).
+  // Reprise native : `--resume <id>`, identifiant lu sur stderr (`session_id: …`).
+  "hermes-cli": {
+    args: ["chat", "-Q"],
+    promptVia: "last-arg",
+    promptFlag: "-q",
+    freeArgs: ["--yolo"],
+    readOnlyArgs: [],
+    resumeArgs: (id) => ["--resume", id],
+  },
   // Vérifié en réel (OpenCode 1.19) : fichier créé, code 0. Lecture seule : agent intégré `plan` (éditions refusées).
   "opencode-cli": { args: ["run"], promptVia: "last-arg", readOnlyArgs: ["--agent", "plan"] },
   // Options vérifiées dans l'aide des versions installées (Gemini CLI 0.63, Qwen Code 0.25) ; exécution réelle
@@ -68,20 +80,30 @@ export const GENERIC_INVOCATIONS: Record<string, Omit<GenericCliConfig, "signatu
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 export const stripAnsi = (s: string): string => s.replace(ANSI, "");
 
-export function createPlainTextNormalizer(): OutputNormalizer {
+export function createPlainTextNormalizer(
+  opts: { sessionId?: (stderrLine: string) => string | undefined } = {},
+): OutputNormalizer {
   const lastErr: string[] = [];
+  let nativeSessionId: string | undefined;
   return {
     onStdout(line, seq) {
       if (!seq.terminal) seq.emit({ kind: "output", text: stripAnsi(line), channel: "stdout" });
     },
     onStderr(line, seq) {
       const clean = stripAnsi(line);
+      const id = opts.sessionId?.(clean);
+      if (id) {
+        // Identifiant de session natif (reprise) : retenu, jamais affiché comme sortie.
+        nativeSessionId = id;
+        return;
+      }
       if (clean.trim()) lastErr.push(clean.trim());
       if (lastErr.length > 3) lastErr.shift();
       seq.emit({ kind: "output", text: clean, channel: "stderr" });
     },
     finish(exit, seq) {
-      if (exit.exitCode === 0) seq.emit({ kind: "completed", resultRef: "stdout" });
+      if (exit.exitCode === 0)
+        seq.emit({ kind: "completed", resultRef: "stdout", ...(nativeSessionId && { nativeSessionId }) });
       else {
         const why = lastErr.join(" | ").slice(0, 600);
         seq.fail("cli_reported_error", `CLI exited with ${exit.exitCode ?? exit.signal}${why ? ` : ${why}` : ""}`);
@@ -98,17 +120,30 @@ export class GenericCliConnector implements AgentConnector {
   readonly #probe: ProbeContext;
   readonly #runner: Runner | undefined;
   readonly #baseEnv: Record<string, string>;
+  readonly #runtimeDir: string | undefined;
   #binary: string | undefined;
+  /** Reprise native (seulement pour les CLI qui en ont une, ex. Hermes `--resume`). */
+  readonly resume?: (nativeSessionId: string, req: AgentTaskRequest, signal: AbortSignal) => AsyncIterable<AgentEvent>;
 
   constructor(
     cfg: GenericCliConfig,
-    opts: { probeContext: ProbeContext; runner?: Runner; baseEnv: Record<string, string>; binaryPath?: string },
+    opts: {
+      probeContext: ProbeContext;
+      runner?: Runner;
+      baseEnv: Record<string, string>;
+      binaryPath?: string;
+      /** Dossier privé des fichiers de configuration temporaires (par défaut : dossier temporaire du système). */
+      runtimeDir?: string;
+    },
   ) {
     this.#cfg = cfg;
     this.#probe = opts.probeContext;
     this.#runner = opts.runner;
     this.#baseEnv = opts.baseEnv;
     this.#binary = opts.binaryPath;
+    this.#runtimeDir = opts.runtimeDir;
+    const resumeArgs = cfg.resumeArgs;
+    if (resumeArgs) this.resume = (id, req, signal) => this.#run(req, signal, resumeArgs(id));
     this.manifest = {
       id: cfg.signature.connectorId,
       version: "0.1.0",
@@ -134,13 +169,18 @@ export class GenericCliConnector implements AgentConnector {
   }
 
   start(req: AgentTaskRequest, signal: AbortSignal): AsyncIterable<AgentEvent> {
+    return this.#run(req, signal, []);
+  }
+
+  #run(req: AgentTaskRequest, signal: AbortSignal, sessionArgs: string[]): AsyncIterable<AgentEvent> {
     if (!this.#binary)
       return refuse(req.taskId, "binary_not_found", `${this.manifest.displayName} n'a pas été détecté`);
     const readOnly = req.permissionsPolicyId === "read-only";
     if (readOnly && !this.#cfg.readOnlyArgs)
       return refuse(req.taskId, "policy_denied", `${this.manifest.displayName} ne propose pas de mode lecture seule`);
     let started = false;
-    const text = createPlainTextNormalizer();
+    const hermes = this.manifest.id === "hermes-cli";
+    const text = createPlainTextNormalizer(hermes ? { sessionId: parseHermesSessionId } : {});
     const normalizer: OutputNormalizer = {
       ...text,
       onStdout(line, seq) {
@@ -163,13 +203,23 @@ export class GenericCliConnector implements AgentConnector {
         text.finish(exit, seq);
       },
     };
-    const mcp = mcpConfigFor(this.manifest.id, req.mcpServers);
+    const mcp: { args?: string[]; env: Record<string, string>; cleanup: () => void } | undefined = hermes
+      ? hermesScope({
+          servers: req.mcpServers,
+          readOnly,
+          ...(this.#runtimeDir && { baseDir: this.#runtimeDir }),
+          ...(this.#baseEnv.HOME && { home: this.#baseEnv.HOME }),
+          env: this.#baseEnv,
+        })
+      : mcpConfigFor(this.manifest.id, req.mcpServers, this.#runtimeDir);
     const task = runCliTask({
       taskId: req.taskId,
       file: this.#binary,
       args: [
         ...this.#cfg.args,
+        ...sessionArgs,
         ...(readOnly ? this.#cfg.readOnlyArgs! : (this.#cfg.freeArgs ?? [])),
+        ...(mcp?.args ?? []),
         ...(this.#cfg.promptVia === "last-arg"
           ? [...(this.#cfg.promptFlag ? [this.#cfg.promptFlag] : []), req.prompt]
           : []),
@@ -203,6 +253,7 @@ export class GenericCliConnector implements AgentConnector {
 export function mcpConfigFor(
   connectorId: string,
   servers: AgentTaskRequest["mcpServers"],
+  baseDir?: string,
 ): { env: Record<string, string>; cleanup: () => void } | undefined {
   if (!servers?.length) return undefined;
   let content: unknown;
@@ -226,14 +277,15 @@ export function mcpConfigFor(
       ),
     };
   } else return undefined;
-  const dir = mkdtempSync(join(tmpdir(), "nexus-mcp-"));
+  if (baseDir) mkdirSync(baseDir, { recursive: true, mode: 0o700 });
+  const dir = mkdtempSync(join(baseDir ?? tmpdir(), "nexus-mcp-"));
   const file = join(dir, "settings.json");
   writeFileSync(file, JSON.stringify(content), { mode: 0o600 });
   return { env: { [envName]: file }, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 /** Un connecteur peut-il recevoir un rôle en lecture seule (chef, relecteur) ? Les CLI génériques sans mode lecture
- * seule ne le peuvent pas ; Claude, Codex et les API respectent la politique `read-only`. */
+ * seule ne le peuvent pas ; Claude, Codex, Hermes et les API respectent la politique `read-only`. */
 export function supportsReadOnly(connector: AgentConnector): boolean {
   return !(connector instanceof GenericCliConnector) || connector.readOnlySupported;
 }

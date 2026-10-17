@@ -48,11 +48,17 @@ const STRENGTHS: Record<string, string> = {
 const MAX_REVIEW_ROUNDS = 2;
 /**
  * CLI qui reçoivent le serveur MCP de l'équipe (messagerie en direct) ; les autres ont la transmission par consigne.
- * Codex n'y est pas : sa configuration MCP passe par `-c` dans argv (jeton du bus visible dans la table des
- * processus) ou par un CODEX_HOME temporaire (qui masquerait la connexion de l'utilisateur) ; voir `codexMcpArgs`.
- * Hermes : aucun moyen vérifié de lui fournir un serveur MCP par fichier temporaire.
+ * Jamais de jeton dans argv : fichier temporaire 0600 (Claude, Gemini, Qwen, OpenCode), portée gérée de Hermes
+ * (`HERMES_MANAGED_DIR`), ou variables d'environnement transmises par l'option `env_vars` de Codex.
  */
-const BUS_CONNECTORS = new Set(["claude-cli", "gemini-cli", "qwen-cli", "opencode-cli"]);
+export const BUS_CONNECTORS: ReadonlySet<string> = new Set([
+  "claude-cli",
+  "codex-cli",
+  "gemini-cli",
+  "qwen-cli",
+  "opencode-cli",
+  "hermes-cli",
+]);
 /** Phases pendant lesquelles une boucle tourne : au démarrage de l'application, elles ont forcément été interrompues. */
 const LIVE_PHASES: ReadonlySet<OrchestraPhase> = new Set(["planning", "awaiting_approval", "running", "summarizing"]);
 const MAX_MESSAGES = 500;

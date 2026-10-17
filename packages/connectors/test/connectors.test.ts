@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
   copyFileSync,
+  existsSync,
+  lstatSync,
   mkdirSync,
+  readdirSync,
+  statSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -27,6 +31,11 @@ import {
   claudeMcpConfig,
   claudeMcpArgs,
   codexMcpArgs,
+  codexMcpConfig,
+  hermesScope,
+  hermesUserHome,
+  injectHermesMcpServers,
+  parseHermesSessionId,
   mcpConfigFor,
   stripAnsi,
   GenericCliConnector,
@@ -342,14 +351,22 @@ test(
 test("CLI générique : invocation non interactive, auto-approbation dans les modes qui écrivent, lecture seule réelle ou refusée", async (t) => {
   const dir = binDir(t, { fakecli: "fake-plain.mjs" });
   const seen: string[][] = [];
+  const envs: Array<Record<string, string>> = [];
   const make = (id: string) =>
     new GenericCliConnector(
       { signature: sig(id, "fakecli"), ...GENERIC_INVOCATIONS[id]! },
       {
         probeContext: { pathEnv: `${join(dir, "bin")}:${NODE_DIR}:/usr/bin:/bin` },
-        baseEnv: { PATH: `${NODE_DIR}:/usr/bin:/bin` },
+        baseEnv: { PATH: `${NODE_DIR}:/usr/bin:/bin`, HOME: dir },
+        runtimeDir: join(dir, "rt"),
         runner: async (o) => {
           seen.push([...o.args]);
+          envs.push({ ...o.env });
+          if (o.env.HERMES_MANAGED_DIR)
+            assert.match(
+              readFileSync(join(o.env.HERMES_MANAGED_DIR, ".env"), "utf8"),
+              /HERMES_WRITE_SAFE_ROOT=\/dev\/null/,
+            );
           assert.equal(o.stdin, undefined, "pas de consigne sur stdin (la CLI ouvrirait son mode interactif)");
           return {
             exitCode: 0,
@@ -375,15 +392,28 @@ test("CLI générique : invocation non interactive, auto-approbation dans les mo
     ["chat", "-Q", "--yolo", "-q", "Fais X"],
     ["chat", "-Q", "--yolo", "-q", "Fais Y"],
   ]);
-  // Hermes n'a pas de mode lecture seule : refus explicite, jamais une exécution qui pourrait écrire.
-  assert.equal(c.readOnlySupported, false);
-  assert.equal(supportsReadOnly(c), false);
+  // Hermes en lecture seule : jeux d'outils sans écriture ni terminal, écriture de fichiers refusée partout.
+  assert.equal(c.readOnlySupported, true);
+  assert.equal(supportsReadOnly(c), true);
   const ro = await collect(
     c.start(request(dir, { prompt: "Relis", permissionsPolicyId: "read-only" }), new AbortController().signal),
   );
-  const last = ro.at(-1);
+  assert.equal(ro.at(-1)?.kind, "completed");
+  assert.deepEqual(seen.at(-1), ["chat", "-Q", "-t", "file,web,vision,todo,session_search", "-q", "Relis"]);
+  assert.ok(!seen.at(-1)!.includes("--yolo"), "jamais d'auto-approbation en lecture seule");
+  assert.equal(envs.at(-1)!.HERMES_WRITE_SAFE_ROOT, "/dev/null");
+  // Générique sans mode lecture seule : refus explicite, jamais une exécution qui pourrait écrire.
+  const bare = new GenericCliConnector(
+    { signature: sig("hermes-cli", "fakecli"), args: ["chat"], promptVia: "last-arg" },
+    { probeContext: { pathEnv: `${join(dir, "bin")}:${NODE_DIR}:/usr/bin:/bin` }, baseEnv: {} },
+  );
+  await bare.probe();
+  assert.equal(supportsReadOnly(bare), false);
+  const refused = await collect(
+    bare.start(request(dir, { prompt: "Relis", permissionsPolicyId: "read-only" }), new AbortController().signal),
+  );
+  const last = refused.at(-1);
   assert.ok(last?.kind === "failed" && last.code === "policy_denied");
-  assert.equal(seen.length, 2, "aucun processus lancé en lecture seule non supportée");
   // Gemini : mode plan (lecture seule) au lieu de --yolo.
   const g = make("gemini-cli");
   await g.probe();
@@ -394,7 +424,7 @@ test("CLI générique : invocation non interactive, auto-approbation dans les mo
   assert.deepEqual(seen.at(-1), ["--skip-trust", "--approval-mode", "plan", "--prompt", "Relis"]);
 });
 
-test("bus de l'équipe : Claude reçoit une configuration temporaire, sans jeton dans argv ; Codex est désactivé jusqu'à une intégration sûre", () => {
+test("bus de l'équipe : Claude, Gemini, Qwen, OpenCode et Codex le reçoivent sans jeton dans argv", () => {
   const s = [{ name: "nexus", command: "/usr/bin/node", args: ["/x/mcp.cjs"], env: { NEXUS_BUS_TOKEN: "t0k" } }];
   const mcp = claudeMcpConfig(s, "manual")!;
   const cl = mcp.args;
@@ -410,11 +440,24 @@ test("bus de l'équipe : Claude reçoit une configuration temporaire, sans jeton
   assert.throws(() => readFileSync(cl[1]!), "configuration temporaire supprimée");
   assert.deepEqual(claudeMcpConfig(s, "autonomous")!.args.length, 2);
   assert.deepEqual(claudeMcpArgs(undefined, "manual"), []);
-  assert.deepEqual(
-    codexMcpArgs(s),
-    [],
-    "Codex ne reçoit pas le jeton tant qu'un transport sans argv n'est pas vérifié",
-  );
+  // Codex : commande et script dans argv, variables (jeton) dans l'environnement, transmises par `env_vars`.
+  const cx = codexMcpConfig(s);
+  assert.ok(!cx.args.join(" ").includes("t0k"), "jeton jamais dans argv (Codex)");
+  assert.deepEqual(codexMcpArgs(s), cx.args);
+  assert.deepEqual(cx.args, [
+    "-c",
+    'mcp_servers.nexus.command="/usr/bin/node"',
+    "-c",
+    'mcp_servers.nexus.args=["/x/mcp.cjs"]',
+    "-c",
+    'mcp_servers.nexus.env_vars=["NEXUS_BUS_TOKEN"]',
+    "-c",
+    "mcp_servers.nexus.tool_timeout_sec=300",
+    "-c",
+    'mcp_servers.nexus.default_tools_approval_mode="approve"',
+  ]);
+  assert.deepEqual(cx.env, { NEXUS_BUS_TOKEN: "t0k" });
+  assert.deepEqual(codexMcpConfig(undefined), { args: [], env: {} });
   for (const [id, env] of [
     ["gemini-cli", "GEMINI_CLI_SYSTEM_SETTINGS_PATH"],
     ["qwen-cli", "QWEN_CODE_SYSTEM_SETTINGS_PATH"],
@@ -430,7 +473,7 @@ test("bus de l'équipe : Claude reçoit une configuration temporaire, sans jeton
     m.cleanup();
     assert.throws(() => readFileSync(file), "fichier temporaire supprimé");
   }
-  assert.equal(mcpConfigFor("hermes-cli", s), undefined);
+  assert.equal(mcpConfigFor("hermes-cli", s), undefined, "Hermes : voir hermesScope");
   assert.equal(stripAnsi("\x1b[0m> build\x1b[32m ok\x1b[0m"), "> build ok");
 });
 
@@ -487,4 +530,175 @@ test("runCliTask : une exception du normaliseur sur une ligne ne devient jamais 
     events.map((e) => e.kind),
     ["output", "completed"],
   );
+});
+
+test("Hermes : reprise native par `--resume`, identifiant de session lu sur stderr (jamais affiché)", async (t) => {
+  const dir = binDir(t, { fakecli: "fake-plain.mjs" });
+  const seen: string[][] = [];
+  const c = new GenericCliConnector(
+    { signature: sig("hermes-cli", "fakecli"), ...GENERIC_INVOCATIONS["hermes-cli"]! },
+    {
+      probeContext: { pathEnv: `${join(dir, "bin")}:${NODE_DIR}:/usr/bin:/bin` },
+      baseEnv: { PATH: `${NODE_DIR}:/usr/bin:/bin`, FAKE_SESSION: "20261017_003813_1822a7" },
+      runner: async (o) => {
+        seen.push([...o.args]);
+        const { runProcess } = await import("@nexus/process-supervisor");
+        return runProcess(o);
+      },
+    },
+  );
+  await c.probe();
+  const events = await collect(c.start(request(dir, { prompt: "Fais X" }), new AbortController().signal));
+  const done = events.at(-1);
+  assert.ok(done?.kind === "completed" && done.nativeSessionId === "20261017_003813_1822a7", JSON.stringify(done));
+  assert.ok(!events.some((e) => e.kind === "output" && e.text.includes("session_id")), "identifiant non affiché");
+  assert.ok(c.resume, "reprise native disponible");
+  await collect(c.resume("20261017_003813_1822a7", request(dir, { prompt: "Suite" }), new AbortController().signal));
+  assert.deepEqual(seen.at(-1), ["chat", "-Q", "--resume", "20261017_003813_1822a7", "--yolo", "-q", "Suite"]);
+  assert.equal(parseHermesSessionId("session_id: abc_1"), "abc_1");
+  assert.equal(parseHermesSessionId("le session_id: abc"), undefined);
+  // Les CLI sans reprise native n'en annoncent pas.
+  const g = new GenericCliConnector(
+    { signature: sig("gemini-cli", "fakecli"), ...GENERIC_INVOCATIONS["gemini-cli"]! },
+    { probeContext: { pathEnv: "" }, baseEnv: {} },
+  );
+  assert.equal(g.resume, undefined);
+});
+
+test("Hermes : ajout du serveur MCP au texte de la configuration, sans l'analyser ni deviner", () => {
+  const s = [{ name: "nexus", command: "/usr/bin/node", args: ["/x/mcp.cjs"], env: { NEXUS_BUS_TOKEN: "t0k" } }];
+  const entry =
+    'nexus: {"command":"/usr/bin/node","args":["/x/mcp.cjs"],"env":{"NEXUS_BUS_TOKEN":"t0k"},"timeout":300,"connect_timeout":30}';
+  assert.equal(injectHermesMcpServers("", s), `mcp_servers:\n  ${entry}\n`);
+  assert.equal(
+    injectHermesMcpServers("model:\n  default: x\n", s),
+    `model:\n  default: x\nmcp_servers:\n  ${entry}\n`,
+    "bloc ajouté à la fin, le reste intact",
+  );
+  assert.equal(
+    injectHermesMcpServers("mcp_servers:  # mes serveurs\n    github:\n      command: gh\nmodel: x\n", s),
+    `mcp_servers:  # mes serveurs\n    ${entry}\n    github:\n      command: gh\nmodel: x\n`,
+    "entrée ajoutée avec l'indentation existante",
+  );
+  assert.equal(injectHermesMcpServers("mcp_servers: {}\nmodel: x\n", s), `mcp_servers:\n  ${entry}\nmodel: x\n`);
+  assert.equal(injectHermesMcpServers("mcp_servers: {a: {command: b}}\n", s), undefined, "table en ligne : refus");
+  assert.equal(injectHermesMcpServers("mcp_servers:\n  nexus:\n    command: autre\n", s), undefined, "nom déjà pris");
+});
+
+test("Hermes : HERMES_HOME de remplacement (liens, configuration complétée, droits), lecture seule, hooks, nettoyage", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "nexus-hermes-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  const real = join(home, ".hermes");
+  mkdirSync(join(real, "sessions"), { recursive: true });
+  writeFileSync(join(real, "auth.json"), '{"fake":true}');
+  writeFileSync(join(real, "config.yaml"), "model:\n  default: fake-model\n");
+  const s = [{ name: "nexus", command: "/usr/bin/node", args: ["/x/mcp.cjs"], env: { NEXUS_BUS_TOKEN: "t0k" } }];
+  const base = join(root, "rt");
+  const none = join(root, "pas-de-portee-admin");
+  const scope = hermesScope({ servers: s, readOnly: true, baseDir: base, home, env: {}, systemManagedDir: none })!;
+  const overlay = scope.env.HERMES_HOME!;
+  assert.equal(
+    dirname(overlay).endsWith("profiles"),
+    true,
+    "Hermes fait confiance à HERMES_HOME (pas de profil actif suivi)",
+  );
+  assert.equal(statSync(base).mode & 0o777, 0o700);
+  assert.equal(statSync(scope.dir!).mode & 0o777, 0o700);
+  assert.equal(statSync(join(overlay, "config.yaml")).mode & 0o777, 0o600);
+  assert.equal(lstatSync(join(overlay, "auth.json")).isSymbolicLink(), true, "connexion de l'utilisateur partagée");
+  assert.equal(lstatSync(join(overlay, "sessions")).isSymbolicLink(), true, "sessions écrites dans le vrai dossier");
+  assert.equal(lstatSync(join(overlay, "config.yaml")).isSymbolicLink(), false);
+  const cfg = readFileSync(join(overlay, "config.yaml"), "utf8");
+  assert.match(cfg, /^model:\n {2}default: fake-model\n/, "configuration de l'utilisateur conservée");
+  assert.match(cfg, /\nmcp_servers:\n {2}nexus: \{"command":"\/usr\/bin\/node"/);
+  assert.equal(readFileSync(join(real, "config.yaml"), "utf8"), "model:\n  default: fake-model\n", "original intact");
+  assert.deepEqual(scope.args, ["-t", "file,web,vision,todo,session_search,nexus"]);
+  assert.equal(scope.env.HERMES_WRITE_SAFE_ROOT, "/dev/null");
+  const managed = scope.env.HERMES_MANAGED_DIR!;
+  assert.equal(readFileSync(join(managed, ".env"), "utf8"), "HERMES_WRITE_SAFE_ROOT=/dev/null\n");
+  assert.equal(statSync(join(managed, ".env")).mode & 0o777, 0o600);
+  // Écritures de Hermes pendant l'exécution : par les liens dans le vrai dossier, nouvelles entrées rapatriées.
+  writeFileSync(join(overlay, "sessions", "s1.json"), "{}");
+  writeFileSync(join(overlay, "state.db"), "db");
+  scope.cleanup();
+  assert.equal(existsSync(scope.dir!), false, "fichiers temporaires (jeton) supprimés");
+  assert.equal(readFileSync(join(real, "sessions", "s1.json"), "utf8"), "{}");
+  assert.equal(readFileSync(join(real, "state.db"), "utf8"), "db", "nouvelle entrée rapatriée");
+  assert.equal(readFileSync(join(real, "auth.json"), "utf8"), '{"fake":true}', "liens supprimés, jamais suivis");
+  assert.deepEqual(readdirSync(base), []);
+
+  // Portée gérée de l'administrateur : jamais masquée ; la lecture seule reste appliquée (argv + environnement).
+  mkdirSync(none);
+  const admin = hermesScope({ readOnly: true, baseDir: base, home, systemManagedDir: none })!;
+  assert.equal(admin.env.HERMES_MANAGED_DIR, undefined);
+  assert.equal(admin.env.HERMES_WRITE_SAFE_ROOT, "/dev/null");
+  assert.deepEqual(admin.args, ["-t", "file,web,vision,todo,session_search"]);
+  admin.cleanup();
+
+  // Hooks d'état (sessions interactives) : commandes sans shell implicite, accord automatique seulement sans hooks.
+  const hooks = hermesScope({
+    statusHooks: { autoAccept: true },
+    baseDir: base,
+    home,
+    systemManagedDir: join(root, "x"),
+  })!;
+  const hc = JSON.parse(readFileSync(join(hooks.env.HERMES_MANAGED_DIR!, "config.yaml"), "utf8"));
+  assert.equal(hc.hooks_auto_accept, true);
+  assert.deepEqual(hc.hooks.on_session_end, [
+    { command: `/bin/sh -c 'printf "idle\\n" >> "$NEXUS_HOOK_FILE"'`, timeout: 5 },
+  ]);
+  assert.match(hc.hooks.pre_approval_request[0].command, /needs_input/);
+  assert.equal(hooks.args.length, 0);
+  hooks.cleanup();
+  const asked = hermesScope({
+    statusHooks: { autoAccept: false },
+    baseDir: base,
+    home,
+    systemManagedDir: join(root, "x"),
+  })!;
+  assert.equal(
+    JSON.parse(readFileSync(join(asked.env.HERMES_MANAGED_DIR!, "config.yaml"), "utf8")).hooks_auto_accept,
+    undefined,
+  );
+  asked.cleanup();
+  assert.equal(hermesScope({ baseDir: base, home }), undefined, "rien à préparer");
+
+  // Dossier de l'utilisateur : HERMES_HOME, profil actif.
+  assert.equal(hermesUserHome(home, { HERMES_HOME: "/opt/h" }), "/opt/h");
+  mkdirSync(join(real, "profiles", "coder"), { recursive: true });
+  writeFileSync(join(real, "active_profile"), "coder\n");
+  assert.equal(hermesUserHome(home), join(real, "profiles", "coder"));
+});
+
+test("Codex : le jeton du bus passe par l'environnement du processus, jamais par argv", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "nexus-codex-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const seen: Array<{ args: readonly string[]; env: Record<string, string> }> = [];
+  const c = new CodexCliConnector({
+    probeContext: { pathEnv: "" },
+    baseEnv: { HOME: dir },
+    resolvePermissionMode: modes("read-only"),
+    binaryPath: "/usr/bin/true",
+    runner: async (o) => {
+      seen.push({ args: o.args, env: { ...o.env } });
+      return {
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        cancelled: false,
+        outputLimitExceeded: false,
+        durationMs: 1,
+      };
+    },
+  });
+  const s = [{ name: "nexus", command: "/usr/bin/node", args: ["/x/mcp.cjs"], env: { NEXUS_BUS_TOKEN: "t0k" } }];
+  await collect(c.start(request(dir, { mcpServers: s }), new AbortController().signal));
+  await collect(c.resume!("thread-1", request(dir, { mcpServers: s }), new AbortController().signal));
+  for (const r of seen) {
+    assert.ok(!r.args.join(" ").includes("t0k"));
+    assert.equal(r.env.NEXUS_BUS_TOKEN, "t0k");
+    assert.equal(r.env.HOME, dir, "CODEX_HOME de l'utilisateur inchangé : sa connexion reste chargée");
+    assert.ok(r.args.includes('mcp_servers.nexus.env_vars=["NEXUS_BUS_TOKEN"]'));
+  }
 });

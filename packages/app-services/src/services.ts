@@ -215,11 +215,31 @@ export class AppServices {
         runner,
       }),
     );
-    registry.register(new CodexCliConnector({ probeContext, baseEnv, resolvePermissionMode: resolveMode, runner }));
+    // Dossier de configuration choisi par l'utilisateur (CODEX_HOME, HERMES_HOME) : le CLI y retrouve sa connexion.
+    const homeVar = (name: string): Record<string, string> =>
+      opts.userEnv?.[name] ? { [name]: opts.userEnv[name] } : {};
+    // Fichiers de configuration temporaires des agents (serveur MCP de l'équipe, jeton) : dossier privé de Nexus.
+    const runtimeDir = join(opts.userDataDir, "agent-runtime");
+    registry.register(
+      new CodexCliConnector({
+        probeContext,
+        baseEnv: { ...baseEnv, ...homeVar("CODEX_HOME") },
+        resolvePermissionMode: resolveMode,
+        runner,
+      }),
+    );
     for (const id of ["gemini-cli", "hermes-cli", "opencode-cli", "qwen-cli"]) {
       const signature = CLI_SIGNATURES.find((s) => s.connectorId === id)!;
       registry.register(
-        new GenericCliConnector({ signature, ...GENERIC_INVOCATIONS[id]! }, { probeContext, baseEnv, runner }),
+        new GenericCliConnector(
+          { signature, ...GENERIC_INVOCATIONS[id]! },
+          {
+            probeContext,
+            baseEnv: id === "hermes-cli" ? { ...baseEnv, ...homeVar("HERMES_HOME") } : baseEnv,
+            runner,
+            runtimeDir,
+          },
+        ),
       );
     }
     for (const c of opts.extraConnectors ?? []) registry.register(c);
