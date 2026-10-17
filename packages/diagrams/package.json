@@ -1,6 +1,6 @@
 {
   "name": "@nexus/diagrams",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Analyse statique en lecture seule d'un projet (composants, frameworks, dépendances), utilisée par le plan de déploiement.",
   "type": "module",

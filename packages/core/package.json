@@ -1,6 +1,6 @@
 {
   "name": "@nexus/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Modèle métier Nexus AI : projets, équipes, missions, tâches, DAG, politiques, reprise.",
   "type": "module",

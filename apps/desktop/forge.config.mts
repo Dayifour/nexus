@@ -80,7 +80,9 @@ const config: ForgeConfig = {
     },
   },
   makers: [
-    new MakerSquirrel({}),
+    // Squirrel dérive l'identifiant NuGet du nom npm « @nexus/desktop » : « @ » et « / » y sont invalides et font
+    // échouer l'installeur Windows. Identifiant et auteurs explicites.
+    new MakerSquirrel({ name: "nexus_ai", authors: "Dayifour", description: "Atelier local pour agents de code" }),
     new MakerZIP({}, ["darwin", "linux", "win32"]),
     new MakerDeb({
       options: {

@@ -1,6 +1,11 @@
-# Notes de version — Nexus AI 0.2.0 (préversion)
+# Notes de version — Nexus AI 0.2.1 (préversion)
 
-*English version below.*
+_English version below._
+
+## Nouveautés de la 0.2.1
+
+- Installeur Windows : identifiant de paquet Squirrel valide (la construction Windows échouait depuis la 0.1.0).
+- La Release est publiée même si une plateforme expérimentale échoue.
 
 ## Nouveautés de la 0.2.0
 
@@ -24,8 +29,8 @@ ne les remplace pas : il les lance, les isole, les orchestre, relaie leurs messa
 
 ## Contenu
 
-- **Sessions** : un agent, une consigne, dans son vrai terminal (PTY interactif) ou en conversation. Trois modes : *Avec
-  validation* (défaut, copie Git puis relecture du diff), *Autonome* (directement dans le projet), *Autonome en sandbox*
+- **Sessions** : un agent, une consigne, dans son vrai terminal (PTY interactif) ou en conversation. Trois modes : _Avec
+  validation_ (défaut, copie Git puis relecture du diff), _Autonome_ (directement dans le projet), _Autonome en sandbox_
   (opt-in, Linux). Composer : Entrée envoie, messages mis en file pendant que l'agent travaille.
 - **Diffusion** d'une même consigne à 2–6 agents, chacun dans sa copie.
 - **Orchestre** : un chef d'orchestre en lecture seule planifie un DAG ; tâches parallèles dans une copie commune isolée ;
@@ -71,7 +76,10 @@ ne les remplace pas : il les lance, les isole, les orchestre, relaie leurs messa
 
 ---
 
-# Release notes — Nexus AI 0.2.0 (preview)
+# Release notes — Nexus AI 0.2.1 (preview)
+
+**New in 0.2.1.** Valid Squirrel package id for the Windows installer (the Windows build had failed since 0.1.0); the
+Release is published even if an experimental platform fails.
 
 **New in 0.2.0.** Hermes is wired like the other agents: team bus, read-only Orchestra conductor or reviewer, native
 session resume, live status from its hooks, without ever modifying the user's Hermes configuration (per-run overlay).

@@ -1,6 +1,6 @@
 {
   "name": "@nexus/app-services",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Câblage applicatif (Node pur) : domaine, connecteurs, sandbox, secrets, Git, fichiers, usage, et handlers IPC.",
   "type": "module",

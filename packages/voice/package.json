@@ -1,6 +1,6 @@
 {
   "name": "@nexus/voice",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Dictée vocale : session à consentement explicite, moteurs STT local (whisper.cpp) ou cloud sur opt-in (T-020).",
   "type": "module",
