@@ -104,13 +104,15 @@ export function schedule(input: ScheduleInput): ScheduleDecision {
   const byId = new Map(input.tasks.map((t) => [t.id, t]));
   const decision: ScheduleDecision = { start: [], retry: [], blocked: [], deadlock: null, done: false };
 
-  // Nouvelles tentatives : échecs réessayables sous le plafond de tentatives.
+  // Nouvelles tentatives : échecs réessayables sous le plafond de tentatives, et tâches interrompues par un redémarrage
+  // de l'application (pas une erreur de l'agent : toujours reprises, une fois par redémarrage au plus).
   for (const t of input.tasks) {
     if (
-      t.status === "failed" &&
-      t.attempt < t.maxAttempts &&
-      t.lastFailureCode &&
-      RETRYABLE_FAILURES.has(t.lastFailureCode)
+      t.status === "interrupted" ||
+      (t.status === "failed" &&
+        t.attempt < t.maxAttempts &&
+        t.lastFailureCode &&
+        RETRYABLE_FAILURES.has(t.lastFailureCode))
     ) {
       decision.retry.push(t.id);
     }

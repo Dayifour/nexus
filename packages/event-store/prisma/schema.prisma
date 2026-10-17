@@ -88,20 +88,6 @@ model AgentProfile {
   @@map("agent_profiles")
 }
 
-/// Métadonnées de compte uniquement : jamais de jeton ni de clé (coffre de l'OS, T-015).
-model ProviderAccount {
-  id           String @id
-  providerId   String
-  label        String
-  authMode     String
-  secretRef    String?
-  createdAt    String
-  updatedAt    String
-
-  @@unique([providerId, label])
-  @@map("provider_accounts")
-}
-
 model Mission {
   id          String  @id
   projectId   String
@@ -180,39 +166,6 @@ model AgentRun {
   @@map("agent_runs")
 }
 
-model Message {
-  id               String  @id
-  missionId        String
-  taskId           String?
-  senderAgentId    String
-  recipientAgentId String?
-  type             String
-  body             String
-  payloadRef       String?
-  correlationId    String
-  inReplyTo        String?
-  timestamp        String
-
-  @@index([missionId, timestamp])
-  @@map("messages")
-}
-
-model Artifact {
-  id          String @id
-  missionId   String
-  taskId      String?
-  name        String
-  version     Int
-  mediaType   String
-  contentRef  String
-  sha256      String
-  publishedBy String
-  createdAt   String
-
-  @@unique([missionId, name, version])
-  @@map("artifacts")
-}
-
 model Approval {
   id              String  @id
   action          String
@@ -229,50 +182,6 @@ model Approval {
   @@map("approvals")
 }
 
-model Worktree {
-  id         String  @id
-  projectId  String
-  taskId     String  @unique
-  path       String  @unique
-  branch     String
-  baseRef    String
-  status     String
-  createdAt  String
-  removedAt  String?
-
-  @@map("worktrees")
-}
-
-model Decision {
-  id         String @id
-  projectId  String
-  title      String
-  body       String
-  status     String
-  source     String
-  scope      String
-  confidence String
-  createdAt  String
-  version    Int
-
-  @@map("decisions")
-}
-
-model MemoryEntry {
-  id         String @id
-  projectId  String
-  kind       String
-  content    String
-  source     String
-  scope      String
-  confidence String
-  createdAt  String
-  version    Int
-
-  @@index([projectId, kind])
-  @@map("memory_entries")
-}
-
 model UsageSnapshot {
   id           String  @id
   connectorId  String
@@ -287,44 +196,4 @@ model UsageSnapshot {
 
   @@index([connectorId, observedAt])
   @@map("usage_snapshots")
-}
-
-model DeploymentRun {
-  id          String  @id
-  projectId   String
-  target      String
-  environment String
-  status      String
-  url         String?
-  approvalId  String?
-  logRef      String?
-  createdAt   String
-  updatedAt   String
-
-  @@map("deployment_runs")
-}
-
-model VoiceTranscript {
-  id          String  @id
-  projectId   String
-  engine      String
-  language    String
-  rawText     String
-  editedText  String?
-  sentAt      String?
-  audioKept   Boolean
-  createdAt   String
-
-  @@map("voice_transcripts")
-}
-
-model PermissionPolicy {
-  id          String @id
-  name        String @unique
-  mode        String
-  rulesJson   String
-  createdAt   String
-  updatedAt   String
-
-  @@map("permission_policies")
 }

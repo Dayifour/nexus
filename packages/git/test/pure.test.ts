@@ -220,3 +220,22 @@ test("analyse des sorties -z", () => {
     { path: "\n", status: "added" },
   ]);
 });
+
+test("unsafeConfigKeys : clés exécutables en portée local/worktree, insensible à la casse, global ignoré", async () => {
+  const { unsafeConfigKeys } = await import("../src/index.ts");
+  const z = (...e: [string, string, string][]) => e.map(([s, k, v]) => `${s}\0${k}\n${v}\0`).join("");
+  assert.deepEqual(
+    unsafeConfigKeys(
+      z(
+        ["local", "core.hookspath", ".husky"],
+        ["local", "filter.Pwn.clean", "x"],
+        ["worktree", "merge.m.driver", "x"],
+        ["local", "includeif.gitdir:/x/.path", "/y"],
+        ["global", "filter.lfs.process", "git-lfs filter-process"],
+        ["command", "diff.external", ""],
+        ["local", "user.name", "x"],
+      ),
+    ),
+    ["filter.pwn.clean", "merge.m.driver", "includeif.gitdir:/x/.path"],
+  );
+});

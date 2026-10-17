@@ -1,6 +1,6 @@
 {
   "name": "@nexus/event-store",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Journal d'événements append-only, projections et migrations (Prisma + libSQL local).",
   "type": "module",

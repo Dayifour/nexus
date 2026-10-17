@@ -50,7 +50,7 @@ export function createWorkspaceHandlers(
     const err: string[] = [];
     return runProcess({
       file: gitPath,
-      args: ["-c", "core.hooksPath=/dev/null", ...args],
+      args: ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", ...args],
       cwd,
       env: { HOME: svc.homeDir, PATH: svc.probeContext.pathEnv, LANG: "C.UTF-8", GIT_TERMINAL_PROMPT: "0" },
       timeoutMs: 60_000,
@@ -335,6 +335,11 @@ export function createWorkspaceHandlers(
         svc.orchestra.stop(req.missionId);
         return { ok: true as const };
       }),
+    "orchestra.resume": (req) =>
+      guard(async () => {
+        await svc.orchestra.resume(req.missionId);
+        return { ok: true as const };
+      }),
     "orchestra.changes": (req) => guard(() => svc.orchestra.changes(req.missionId)),
     "orchestra.merge": (req) => guard(async () => ({ summary: await svc.orchestra.merge(req.missionId) })),
     "orchestra.message": (req) =>
@@ -427,6 +432,7 @@ export function createWorkspaceHandlers(
         const tasks = await core.store.prisma.task.findMany({
           where: { missionId: { in: missions.map((m) => m.id) } },
         });
+        const prompts = new Map(missions.map((m) => [m.id, m.prompt]));
         const out = [];
         const hidden = deleted();
         for (const t of tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) {
@@ -445,6 +451,8 @@ export function createWorkspaceHandlers(
             updatedAt: t.updatedAt,
             workspacePath: mode === "autonomous" ? p.rootPath : await sessionDir(t.id, p.rootPath),
             ...(live && { terminalId: live.terminalId, agentStatus: live.status }),
+            ...(prompts.get(t.missionId) && { prompt: prompts.get(t.missionId) }),
+            ...(t.lastFailureCode && { lastFailureCode: t.lastFailureCode }),
           });
         }
         return out;
@@ -473,6 +481,8 @@ export function createWorkspaceHandlers(
           return svc.git.commitAll(dir, req.message, { name: "Nexus Agent", email: "agent@nexus.invalid" });
         }
         // Commit de l'utilisateur dans son propre dépôt : son identité git habituelle est utilisée.
+        // Le dossier a pu être modifié par un agent : une config capable d'exécuter une commande (filtre…) est refusée.
+        if (svc.git) await svc.git.assertSafeRepoConfig(p.rootPath);
         const add = await git(p.rootPath, ["add", "-A"]);
         if (add.code !== 0) throw exposed("conflict", `git add : ${add.err.slice(0, 300)}`);
         const c = await git(p.rootPath, ["commit", "-F", "-"], req.message);

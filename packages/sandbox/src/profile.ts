@@ -2,9 +2,12 @@
 // Principe : rien n'est visible sauf ce qui est monté. Les secrets de l'hôte (HOME, ~/.ssh, magasins d'identifiants)
 // ne sont jamais montés. Dans le workspace :
 //  - fichiers d'identifiants (.npmrc, .git-credentials, clés privées, .ssh/, .aws/…) : toujours masqués ;
-//  - fichiers `.env*` : masqués seulement si `protectEnvFiles` (décision D-4 du propriétaire : visibles par défaut).
-import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+//  - fichiers `.env*` : masqués seulement si `protectEnvFiles` (décision D-4 du propriétaire : visibles par défaut) ;
+//  - métadonnées git (`.git`, gitdir et commondir d'un worktree s'ils sont visibles) : LECTURE SEULE. Git est exécuté
+//    sur l'hôte par le Git broker ; un agent qui écrirait `.git/config` (filtres clean/smudge, sshCommand…) ou le
+//    pointeur `gitdir` d'un worktree obtiendrait une exécution de code hors sandbox. Les commits sont faits par Nexus.
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { SandboxProfile } from "@nexus/contracts";
 
 export const WORKSPACE_MOUNT = "/workspace";
@@ -63,6 +66,55 @@ export function findMaskedPaths(root: string, opts: { protectEnvFiles: boolean; 
   return found;
 }
 
+const insideOrEqual = (child: string, parent: string): string | null => {
+  const rel = relative(parent, child);
+  if (rel === "") return "";
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) ? null : rel;
+};
+
+/**
+ * Chemins réels (hôte) des métadonnées git du workspace, à monter en lecture seule : `.git` (dossier ou fichier
+ * pointeur d'un worktree), et pour un worktree le gitdir désigné et son commondir.
+ */
+export function gitMetadataPaths(ws: string): string[] {
+  const dotgit = join(ws, ".git");
+  const out = new Set<string>();
+  const add = (p: string) => {
+    try {
+      out.add(realpathSync(p));
+    } catch {
+      /* cible absente : rien à protéger */
+    }
+  };
+  let st;
+  try {
+    st = lstatSync(dotgit);
+  } catch {
+    return [];
+  }
+  if (st.isDirectory() || st.isSymbolicLink()) add(dotgit);
+  else if (st.isFile()) {
+    out.add(dotgit);
+    let gitdir: string | undefined;
+    try {
+      gitdir = /^gitdir:[ \t]*(.+?)[ \t]*$/m.exec(readFileSync(dotgit, "utf8").slice(0, 4096))?.[1];
+    } catch {
+      gitdir = undefined;
+    }
+    if (gitdir) {
+      const gd = resolve(ws, gitdir);
+      add(gd);
+      try {
+        const cd = readFileSync(join(gd, "commondir"), "utf8").trim();
+        if (cd) add(resolve(gd, cd));
+      } catch {
+        /* pas de commondir (dépôt séparé via --separate-git-dir) */
+      }
+    }
+  }
+  return [...out];
+}
+
 const SYSTEM_RO = [
   "/etc/alternatives",
   "/etc/ld.so.cache",
@@ -74,7 +126,7 @@ const SYSTEM_RO = [
   "/etc/nsswitch.conf",
 ];
 
-export type BwrapBuild = { args: string[]; masked: string[] };
+export type BwrapBuild = { args: string[]; masked: string[]; gitReadOnly: string[] };
 
 /** `seccompFd` : descripteur (vu par bwrap) contenant le programme BPF, ex. 3. */
 export function buildBwrapArgs(
@@ -144,7 +196,20 @@ export function buildBwrapArgs(
     else a.push("--ro-bind", "/dev/null", target);
   }
   for (const [src, dest] of profile.readOnlyBinds) a.push("--ro-bind", realpathSync(src), dest);
-  for (const [src, dest] of profile.writableBinds ?? []) a.push("--bind", realpathSync(src), dest);
+  const writable = (profile.writableBinds ?? []).map(([src, dest]) => [realpathSync(src), dest] as const);
+  for (const [src, dest] of writable) a.push("--bind", src, dest);
+  // Métadonnées git en lecture seule partout où elles sont visibles en écriture (workspace, montages inscriptibles).
+  // Montées APRÈS les montages inscriptibles pour les recouvrir. Un point de montage ne peut être ni supprimé ni renommé.
+  const gitReadOnly: string[] = [];
+  for (const p of gitMetadataPaths(ws)) {
+    for (const [src, dest] of [[ws, WORKSPACE_MOUNT] as const, ...writable]) {
+      const rel = insideOrEqual(p, src);
+      if (rel === null) continue;
+      const target = rel === "" ? dest : `${dest}/${rel}`;
+      a.push("--ro-bind", p, target);
+      gitReadOnly.push(target);
+    }
+  }
   if (profile.network.mode === "proxy") {
     a.push("--dir", "/run/nexus", "--bind", realpathSync(opts.egressSocketPath!), EGRESS_SOCKET_MOUNT);
     a.push("--setenv", "NEXUS_EGRESS_SOCKET", EGRESS_SOCKET_MOUNT);
@@ -156,5 +221,5 @@ export function buildBwrapArgs(
   if (opts.seccompFd !== undefined) a.push("--seccomp", String(opts.seccompFd));
   // La racine tmpfs de bwrap est inscriptible : remontée en lecture seule (ADR-001 constat 1).
   a.push("--remount-ro", "/", "--chdir", WORKSPACE_MOUNT);
-  return { args: a, masked };
+  return { args: a, masked, gitReadOnly };
 }

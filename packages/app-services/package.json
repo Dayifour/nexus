@@ -1,8 +1,8 @@
 {
   "name": "@nexus/app-services",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
-  "description": "Câblage applicatif (Node pur) : domaine, connecteurs, sandbox, secrets, Git, fichiers, diagrammes, usage, et handlers IPC.",
+  "description": "Câblage applicatif (Node pur) : domaine, connecteurs, sandbox, secrets, Git, fichiers, usage, et handlers IPC.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -16,8 +16,6 @@
     "@nexus/contracts": "workspace:*",
     "@nexus/core": "workspace:*",
     "@nexus/deploy-planner": "workspace:*",
-    "@nexus/deploy-vercel": "workspace:*",
-    "@nexus/diagrams": "workspace:*",
     "@nexus/git": "workspace:*",
     "@nexus/github": "workspace:*",
     "@nexus/process-supervisor": "workspace:*",

@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
   AgentEvent,
-  AgentMessage,
   AgentTaskRequest,
   ConnectorManifest,
   IpcEnvelope,
@@ -110,7 +109,7 @@ test("SandboxProfile : D-4 explicite, réseau proxy exige une allowlist", () => 
   assert.equal(SandboxProfile.safeParse({ ...p, env: { lower: "x" } }).success, false);
 });
 
-test("NewDomainEvent et AgentMessage : enveloppes versionnées", () => {
+test("NewDomainEvent : enveloppe versionnée", () => {
   const ev = {
     eventId: randomUUID(),
     aggregateType: "task",
@@ -126,18 +125,6 @@ test("NewDomainEvent et AgentMessage : enveloppes versionnées", () => {
   };
   assert.equal(NewDomainEvent.safeParse(ev).success, true);
   assert.equal(NewDomainEvent.safeParse({ ...ev, eventType: "Task Created" }).success, false);
-  const msg = {
-    messageId: randomUUID(),
-    schemaVersion: 1,
-    missionId: randomUUID(),
-    senderAgentId: randomUUID(),
-    type: "question",
-    body: "quel contrat ?",
-    timestamp: now(),
-    correlationId: randomUUID(),
-  };
-  assert.equal(AgentMessage.safeParse(msg).success, true);
-  assert.equal(AgentMessage.safeParse({ ...msg, type: "grant_permission" }).success, false);
 });
 
 test("IPC : enveloppe stricte, canaux connus uniquement, pas de prototype pollution", () => {

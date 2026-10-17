@@ -108,15 +108,6 @@ export class ApprovalService {
     return toApproval(r);
   }
 
-  async listPending(projectId?: string): Promise<Approval[]> {
-    const rows = await this.#store.prisma.approval.findMany({
-      where: { status: "pending", ...(projectId && { projectId }) },
-      orderBy: { requestedAt: "asc" },
-    });
-    return rows.map(toApproval).filter((a) => Date.parse(a.expiresAt) > Date.parse(this.#clock()));
-  }
-
-  /** Réponse de l'utilisateur. Un agent ne peut jamais accorder (escalade agent-vers-agent, §12). */
   async respond(approvalId: string, decision: "allow" | "deny", actor: Actor): Promise<Approval> {
     if (actor.actorType !== "user")
       throw new DomainError("policy_denied", "Seul l'utilisateur peut répondre à une approbation");

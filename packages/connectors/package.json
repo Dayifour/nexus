@@ -1,6 +1,6 @@
 {
   "name": "@nexus/connectors",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Registre des connecteurs, sondes des CLI et adaptateurs CLI (Claude, Codex, générique) normalisés en AgentEvent.",
   "type": "module",

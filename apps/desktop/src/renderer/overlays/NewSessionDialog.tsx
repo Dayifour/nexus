@@ -14,6 +14,7 @@ import { openAgentTerminal, openSession, openSideBySide } from "../workbench/doc
 import { VoiceDictation } from "./VoiceDictation.tsx";
 import { agentName } from "../ui/AgentAvatar.tsx";
 import { authHelp } from "../ui/AgentChip.tsx";
+import { AgentSetup } from "../ui/AgentSetup.tsx";
 
 const MODES: Array<{ id: SessionMode; icon: typeof Zap }> = [
   { id: "autonomous", icon: Zap },
@@ -271,13 +272,19 @@ export function NewSessionDialog() {
                   inventory.data && (
                     <div className="flex flex-col gap-2">
                       <p className="text-[12.5px] text-fg-muted">{t("newSession.noAgents")}</p>
-                      <input
-                        className="input font-mono"
-                        placeholder="claude-code"
-                        aria-label={t("newSession.connectorId")}
-                        value={customAgent}
-                        onChange={(e) => setCustomAgent(e.target.value.toLowerCase())}
-                      />
+                      <AgentSetup />
+                      {/* Connecteur personnalisé : réservé aux cas avancés, jamais la voie par défaut. */}
+                      <details className="text-[12px]">
+                        <summary className="cursor-pointer text-fg-muted">{t("newSession.other")}</summary>
+                        <p className="text-[11.5px] text-fg-subtle my-1">{t("newSession.otherHint")}</p>
+                        <input
+                          className="input font-mono"
+                          placeholder="my-connector"
+                          aria-label={t("newSession.connectorId")}
+                          value={customAgent}
+                          onChange={(e) => setCustomAgent(e.target.value.toLowerCase())}
+                        />
+                      </details>
                     </div>
                   )
                 )}

@@ -60,7 +60,14 @@ export const terminalBus = {
     buffered.set(terminalId, buf);
   },
   emitExit(terminalId: string, code: number | null): void {
-    exitListeners.get(terminalId)?.(code);
+    const listener = exitListeners.get(terminalId);
+    if (listener) {
+      listener(code);
+      return;
+    }
+    // Terminal terminé sans vue rattachée (agent en arrière-plan, session lancée puis onglet fermé) : sa sortie
+    // tamponnée ne sera jamais affichée (la session relit son enregistrement) ; elle est libérée.
+    buffered.delete(terminalId);
   },
   attach(terminalId: string, onData: DataListener, onExit: ExitListener): () => void {
     dataListeners.set(terminalId, onData);
@@ -76,6 +83,12 @@ export const terminalBus = {
     };
   },
 };
+
+/**
+ * Terminaux d'agent dont l'onglet est fermé sans arrêter l'agent (« Laisser tourner en arrière-plan ») : le PTY reste
+ * vivant côté main et se rouvre depuis la liste des sessions (sa sortie est mise en tampon entre-temps).
+ */
+export const backgroundTerminals = new Set<string>();
 
 /** Actions clavier d'un terminal affiché (copier, coller, effacer), par panneau : utilisées par la palette. */
 export interface TerminalControls {

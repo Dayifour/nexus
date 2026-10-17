@@ -123,10 +123,29 @@ export function routeTasks(
   });
 }
 
-/** Extrait le premier objet JSON d'une réponse de modèle (texte libre autour toléré), sans `eval`. */
-export function extractJsonObject(text: string): unknown {
-  const start = text.indexOf("{");
-  if (start === -1) return undefined;
+/**
+ * Extrait le premier objet JSON d'une réponse de modèle (texte libre autour toléré), sans `eval`.
+ * Avec `accept`, chaque objet équilibré est essayé dans l'ordre et le premier accepté est renvoyé (ex. celui qui porte
+ * un `verdict`, même précédé d'un autre objet ou d'accolades parasites).
+ */
+export function extractJsonObject(text: string, accept?: (value: unknown) => boolean): unknown {
+  for (let start = text.indexOf("{"); start !== -1; start = text.indexOf("{", start + 1)) {
+    const end = balancedEnd(text, start);
+    if (end !== -1) {
+      try {
+        const value: unknown = JSON.parse(text.slice(start, end + 1));
+        if (!accept || accept(value)) return value;
+      } catch {
+        /* objet invalide : candidat suivant (avec `accept` seulement) */
+      }
+    }
+    if (!accept) return undefined;
+  }
+  return undefined;
+}
+
+/** Position de l'accolade fermante qui équilibre celle de `start` (chaînes JSON respectées), ou -1. */
+function balancedEnd(text: string, start: number): number {
   let depth = 0;
   let inString = false;
   for (let i = start; i < text.length; i++) {
@@ -138,13 +157,7 @@ export function extractJsonObject(text: string): unknown {
     }
     if (c === '"') inString = true;
     else if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) {
-      try {
-        return JSON.parse(text.slice(start, i + 1));
-      } catch {
-        return undefined;
-      }
-    }
+    else if (c === "}" && --depth === 0) return i;
   }
-  return undefined;
+  return -1;
 }

@@ -17,9 +17,16 @@ import { toast } from "sonner";
 import { call, isUnavailable } from "../api.ts";
 import { tNow, useT } from "../i18n/index.ts";
 import { errorText } from "../lib/actions.ts";
+import { isMac } from "../lib/shortcuts.ts";
 import { useAppStore } from "../stores/app.ts";
 import { useProjectStore } from "../stores/project.ts";
-import { terminalBus, terminalControls, terminalPanels, useTerminalsStore } from "../stores/terminals.ts";
+import {
+  backgroundTerminals,
+  terminalBus,
+  terminalControls,
+  terminalPanels,
+  useTerminalsStore,
+} from "../stores/terminals.ts";
 import { Button, EmptyState, IconButton, cx } from "../ui/primitives.tsx";
 import type { PanelProps } from "../workbench/DockHost.tsx";
 import { getDock, type PanelParams } from "../workbench/dock.ts";
@@ -54,6 +61,13 @@ export function terminalTheme(): ITheme {
     brightCyan: v("bright-cyan"),
     brightWhite: v("bright-white"),
   };
+}
+
+/** Suit le thème de l'application (clair, sombre, système) pour un terminal créé hors de ce panneau. */
+export function followTheme(term: Terminal): () => void {
+  return useAppStore.subscribe((s, prev) => {
+    if (s.resolvedTheme !== prev.resolvedTheme) term.options.theme = terminalTheme();
+  });
 }
 
 export async function copyText(text: string): Promise<void> {
@@ -149,6 +163,8 @@ function TerminalPane({
       scrollback: 10_000,
       allowProposedApi: true,
       theme: terminalTheme(),
+      // Comme VS Code : les couleurs ANSI trop proches du fond sont ajustées (lisibles en clair comme en sombre).
+      minimumContrastRatio: 4.5,
       macOptionIsMeta: true,
     });
     const fit = new FitAddon();
@@ -187,8 +203,9 @@ function TerminalPane({
       }
       // Ctrl+Maj+V : collage natif du navigateur (événement paste reçu par le terminal).
       if (mod && e.shiftKey && e.code === "KeyV") return false;
-      // Ctrl+K (Cmd+K) : effacer le terminal, comme dans VS Code.
-      if (mod && !e.shiftKey && !e.altKey && e.code === "KeyK") {
+      // Cmd+K sur macOS : effacer le terminal, comme dans VS Code. Ailleurs, Ctrl+K reste au shell (effacer jusqu'à
+      // la fin de la ligne dans readline/zsh, raccourcis des TUI d'agents) : « Effacer » reste dans la barre d'outils.
+      if (isMac && e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "KeyK") {
         term.clear();
         return false;
       }
@@ -314,8 +331,10 @@ function TerminalPane({
       visSub.dispose();
       detach?.();
       // Un terminal rattaché (agent) n'est tué que si le panneau est réellement fermé ou relancé.
+      // « Laisser tourner en arrière-plan » : l'onglet se ferme, l'agent continue (rouvrable depuis les sessions).
       const panelClosed = !getDock()?.getPanel(panelId);
-      if (terminalId && (!attached || panelClosed || restarting.current)) {
+      const keepAlive = attached && terminalId !== undefined && backgroundTerminals.delete(terminalId);
+      if (terminalId && !keepAlive && (!attached || panelClosed || restarting.current)) {
         void call("terminal.kill", { terminalId }).catch(() => {});
       }
       restarting.current = false;
@@ -357,6 +376,7 @@ function TerminalPane({
     <div
       className={cx("terminal-pane", focused && "is-focused")}
       data-testid="terminal-pane"
+      data-status={info?.status}
       onMouseDown={onFocus}
       onFocusCapture={onFocus}
     >
@@ -520,7 +540,12 @@ export function TerminalPanel({ params, api, panelId }: PanelProps) {
           <IconButton size="sm" label={t("term.rename")} onClick={() => setRenaming(true)}>
             <Pencil size={13} />
           </IconButton>
-          <IconButton size="sm" label={t("term.clear")} shortcut="mod+k" onClick={() => focusedControls()?.clear()}>
+          <IconButton
+            size="sm"
+            label={t("term.clear")}
+            {...(isMac && { shortcut: "mod+k" })}
+            onClick={() => focusedControls()?.clear()}
+          >
             <Eraser size={13} />
           </IconButton>
           <IconButton size="sm" label={t("term.restart")} onClick={() => focusedControls()?.restart()}>

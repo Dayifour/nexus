@@ -46,3 +46,24 @@ const api = {
 export type NexusApi = typeof api;
 
 contextBridge.exposeInMainWorld("nexus", Object.freeze(api));
+
+// Thème initial (transmis par le main) posé sur <html> avant le premier rendu : pas d'éclair du mauvais thème au
+// démarrage. Le store du renderer prend ensuite le relais (changements en direct, mode Système).
+const initialTheme = process.argv.find((a) => a.startsWith("--nexus-theme="))?.slice("--nexus-theme=".length);
+if (initialTheme === "dark" || initialTheme === "light") {
+  const apply = (): boolean => {
+    const root = document.documentElement;
+    if (!root) return false;
+    if (!root.dataset.theme) {
+      root.dataset.theme = initialTheme;
+      root.style.colorScheme = initialTheme;
+    }
+    return true;
+  };
+  if (!apply()) {
+    const observer = new MutationObserver(() => {
+      if (apply()) observer.disconnect();
+    });
+    observer.observe(document, { childList: true });
+  }
+}

@@ -1,8 +1,8 @@
 # Contrats
 
-> Nexus AI — version documentaire 1.1, 10 octobre 2026. Statut : spécification, pas implémentation.
+> Nexus AI — spécification d'origine (version documentaire 1.1, 10 octobre 2026). Document de conception, conservé pour référence : l'état réel est décrit dans `docs/ARCHITECTURE.md`, `docs/USER_GUIDE.md` et `.coordination/STATUS.md` ; en cas d'écart, le code fait foi.
 
-**Source :** chapitres 9 de `ID/idee.md`. Ce fichier est une extraction documentaire, sans remplacement du maître.
+**Source :** chapitres 9 de `SOURCES_ORIGINALES/Nexus_AI_SPEC_MASTER_v1.md`. Ce fichier est une extraction documentaire, sans remplacement du maître.
 
 ## Chapitre 9 — Contrat universel d'agent et de connecteur
 

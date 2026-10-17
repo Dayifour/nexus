@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DomainError, NexusCore, OWNER, SYSTEM, evaluatePolicy, type ExecutionEnvironment } from "../src/index.ts";
@@ -80,7 +80,7 @@ test("équipes : 2 équipes configurées, agent sous abonnement en sandbox autor
   const core = await open(t, e);
   const { project, team, backend } = await seed(core, e);
   await core.teams.create({ projectId: project.projectId, name: "QA", governanceMode: "MANUAL" }, OWNER);
-  assert.equal((await core.teams.list(project.projectId)).length, 2);
+  assert.equal(await core.store.prisma.team.count({ where: { projectId: project.projectId } }), 2);
   // L'ancienne règle D-1 est levée : activer la sandbox pour Claude sous abonnement est un choix de l'utilisateur.
   const sandboxed = await core.teams.addAgent(
     team.teamId,
@@ -169,89 +169,6 @@ test("missions : DAG validé à l'ajout, cycle refusé, agent hors équipe refus
     isCode("conflict"),
     "draft -> running interdit",
   );
-});
-
-test("bus UC-04/AC-02 : question/réponse corrélées entre deux fournisseurs, artefact versionné et vérifié", async (t) => {
-  const e = env(t);
-  const core = await open(t, e);
-  const { mission, backend, frontend } = await seed(core, e);
-  const q = await core.bus.send(
-    {
-      missionId: mission.missionId,
-      senderAgentId: frontend,
-      recipientAgentId: backend,
-      type: "question",
-      body: "Quel contrat JSON de connexion ?",
-    },
-    OWNER,
-  );
-  await assert.rejects(
-    core.bus.send(
-      { missionId: mission.missionId, senderAgentId: backend, type: "answer", body: "sans référence" },
-      OWNER,
-    ),
-    isCode("invalid_request"),
-  );
-  const a = await core.bus.send(
-    {
-      missionId: mission.missionId,
-      senderAgentId: backend,
-      recipientAgentId: frontend,
-      type: "answer",
-      body: "Voir login-contract v1",
-      inReplyTo: q.messageId,
-    },
-    OWNER,
-  );
-  assert.equal(a.correlationId, q.correlationId);
-  const v1 = await core.bus.publishArtifact(
-    {
-      missionId: mission.missionId,
-      name: "login-contract",
-      mediaType: "application/json",
-      content: '{"v":1}',
-      publishedBy: backend,
-    },
-    OWNER,
-  );
-  const v2 = await core.bus.publishArtifact(
-    {
-      missionId: mission.missionId,
-      name: "login-contract",
-      mediaType: "application/json",
-      content: '{"v":2}',
-      publishedBy: backend,
-    },
-    OWNER,
-  );
-  assert.deepEqual([v1.version, v2.version], [1, 2]);
-  assert.equal((await core.bus.readArtifact(mission.missionId, "login-contract")).content, '{"v":2}');
-  assert.equal((await core.bus.readArtifact(mission.missionId, "login-contract", 1)).content, '{"v":1}');
-  assert.equal((await core.bus.list(mission.missionId, { correlationId: q.correlationId })).length, 2);
-  await assert.rejects(
-    core.bus.send(
-      {
-        missionId: mission.missionId,
-        senderAgentId: "00000000-0000-4000-8000-000000000000",
-        type: "question",
-        body: "intrus",
-      },
-      OWNER,
-    ),
-    isCode("policy_denied"),
-  );
-});
-
-test("artefact altéré sur disque : intégrité refusée", async (t) => {
-  const e = env(t);
-  const core = await open(t, e);
-  const { mission, backend } = await seed(core, e);
-  await core.bus.publishArtifact(
-    { missionId: mission.missionId, name: "doc", mediaType: "text/plain", content: "original", publishedBy: backend },
-    OWNER,
-  );
-  writeFileSync(join(e.dir, "artifacts", mission.missionId, "doc", "v1"), "altéré");
-  await assert.rejects(core.bus.readArtifact(mission.missionId, "doc"), isCode("conflict"));
 });
 
 test("approbations AC-08 : utilisateur seul, empreinte du plan, expiration, usage unique", async (t) => {

@@ -1,8 +1,7 @@
-// Contexte d'une tâche affichée dans la vue d'activité, quelle que soit son origine : session, tâche d'un
-// orchestre ou d'une mission (titre, agent, statut, dépendances, raison d'échec, réattribution).
+// Contexte d'une tâche affichée dans la vue d'activité, quelle que soit son origine : session ou tâche d'un
+// orchestre (titre, agent, statut, dépendances, raison d'échec, réattribution).
 import { useMemo } from "react";
 import { useOrchestraStore } from "../stores/orchestra.ts";
-import { useMissionsStore } from "../stores/missions.ts";
 import { useSessionsStore } from "../stores/sessions.ts";
 import { getDock, openSession } from "../workbench/dock.ts";
 import { openSessionTerminal } from "./agent-terminal.ts";
@@ -25,7 +24,6 @@ export function useTaskContext(taskId: string): TaskContext {
   // Sélecteurs stables (références du store) ; le calcul se fait ensuite, sans créer d'objet dans le sélecteur.
   const details = useOrchestraStore((s) => s.details);
   const liveFeeds = useOrchestraStore((s) => s.live);
-  const missionTasks = useMissionsStore((s) => s.tasks);
   const orch = useMemo(() => {
     for (const [missionId, res] of Object.entries(details)) {
       const task = res.data?.tasks.find((x) => x.taskId === taskId);
@@ -33,13 +31,6 @@ export function useTaskContext(taskId: string): TaskContext {
     }
     return undefined;
   }, [details, liveFeeds, taskId]);
-  const mission = useMemo(() => {
-    for (const res of Object.values(missionTasks)) {
-      const task = res.data?.find((x) => x.taskId === taskId);
-      if (task) return { list: res.data ?? [], task };
-    }
-    return undefined;
-  }, [missionTasks, taskId]);
 
   let waitingFor: string[] = [];
   let connectorId = session?.connectorId;
@@ -55,18 +46,13 @@ export function useTaskContext(taskId: string): TaskContext {
       .filter((e) => e.kind === "assign" && e.reassigned && e.taskId === taskId)
       .map((e) => e.text);
     reassignments = [...new Set(reassignments)];
-  } else if (mission) {
-    waitingFor = mission.task.dependsOn
-      .map((d) => mission.list.find((x) => x.taskId === d))
-      .filter((x) => x && !DONE.has(x.status))
-      .map((x) => x?.title ?? "");
   }
   return {
-    title: session?.title ?? orch?.task.title ?? mission?.task.title,
-    status: session?.status ?? orch?.task.status ?? mission?.task.status,
+    title: session?.title ?? orch?.task.title,
+    status: session?.status ?? orch?.task.status,
     ...(connectorId && { connectorId }),
     waitingFor,
-    ...(mission?.task.lastFailureCode && { lastFailureCode: mission.task.lastFailureCode }),
+    ...(session?.lastFailureCode && { lastFailureCode: session.lastFailureCode }),
     reassignments,
   };
 }

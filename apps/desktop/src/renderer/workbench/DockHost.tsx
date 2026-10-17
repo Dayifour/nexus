@@ -11,14 +11,10 @@ import {
   FileSearch,
   Maximize2,
   Minimize2,
-  Network,
   Orbit,
   Plus,
-  Rocket,
   Settings,
-  ShieldCheck,
   SquareTerminal,
-  Users,
   X,
   GitCompare,
   Command as CommandIcon,
@@ -27,7 +23,7 @@ import {
   ScrollText,
   Keyboard,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState, type ComponentType, type MouseEvent } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState, type ComponentType, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/index.ts";
 import { FileIcon } from "../lib/file-icons.tsx";
@@ -35,6 +31,7 @@ import { runCommand } from "../lib/commands.ts";
 import { useEditorsStore } from "../stores/editors.ts";
 import { ACTIVE_STATUSES, shownLive, useSessionsStore } from "../stores/sessions.ts";
 import { useTerminalsStore } from "../stores/terminals.ts";
+import { ErrorBoundary } from "../ui/ErrorBoundary.tsx";
 import { Kbd, Skeleton, cx } from "../ui/primitives.tsx";
 import {
   getDock,
@@ -67,7 +64,6 @@ export interface PanelProps {
 }
 
 // Vues secondaires chargées à la demande (graphe, réglages, déploiement) : démarrage plus léger.
-const MissionPanel = lazy(() => import("../panels/MissionPanel.tsx").then((m) => ({ default: m.MissionPanel })));
 const SettingsPanel = lazy(() => import("../panels/SettingsPanel.tsx").then((m) => ({ default: m.SettingsPanel })));
 const ShortcutsPanel = lazy(() => import("../panels/ShortcutsPanel.tsx").then((m) => ({ default: m.ShortcutsPanel })));
 const AgentOutputPanel = lazy(() => import("../panels/BottomViews.tsx").then((m) => ({ default: m.AgentOutputPanel })));
@@ -77,16 +73,12 @@ const UsagePanel = lazy(() => import("../panels/UsagePanel.tsx").then((m) => ({ 
 const DeploymentPanel = lazy(() =>
   import("../panels/DeploymentPanel.tsx").then((m) => ({ default: m.DeploymentPanel })),
 );
-const DeliveryPanel = lazy(() => import("../panels/DeliveryPanel.tsx").then((m) => ({ default: m.DeliveryPanel })));
-const ApprovalsPanel = lazy(() => import("../panels/ApprovalsPanel.tsx").then((m) => ({ default: m.ApprovalsPanel })));
-const TeamsPanel = lazy(() => import("../panels/TeamsPanel.tsx").then((m) => ({ default: m.TeamsPanel })));
 
 const PANELS: Record<PanelComponent, ComponentType<PanelProps>> = {
   editor: EditorPanel,
   diff: DiffPanel,
   terminal: TerminalPanel,
   session: SessionPanel,
-  mission: MissionPanel,
   settings: SettingsPanel,
   usage: UsagePanel,
   orchestra: OrchestraPanel,
@@ -94,15 +86,11 @@ const PANELS: Record<PanelComponent, ComponentType<PanelProps>> = {
   log: LogPanel,
   shortcuts: ShortcutsPanel,
   deployment: DeploymentPanel,
-  delivery: DeliveryPanel,
-  approvals: ApprovalsPanel,
-  teams: TeamsPanel,
 };
 
 const VIEW_ICONS: Partial<Record<PanelComponent, typeof Bot>> = {
   terminal: SquareTerminal,
   session: Bot,
-  mission: Network,
   settings: Settings,
   usage: Gauge,
   orchestra: Orbit,
@@ -110,25 +98,25 @@ const VIEW_ICONS: Partial<Record<PanelComponent, typeof Bot>> = {
   log: ScrollText,
   shortcuts: Keyboard,
   deployment: CloudUpload,
-  delivery: Rocket,
-  approvals: ShieldCheck,
-  teams: Users,
   diff: GitCompare,
 };
 
 function PanelContent({ entry }: { entry: PortalEntry }) {
   const Comp = entry.component ? PANELS[entry.component] : undefined;
   if (!Comp || !entry.panel || !entry.panelId) return null;
+  // Une vue qui plante reste confinée à son panneau (message + « Recharger le panneau »).
   return (
-    <Suspense
-      fallback={
-        <div className="p-6">
-          <Skeleton lines={6} />
-        </div>
-      }
-    >
-      <Comp params={entry.params} api={entry.panel.api} panelId={entry.panelId} />
-    </Suspense>
+    <ErrorBoundary scope="panel" label={entry.component}>
+      <Suspense
+        fallback={
+          <div className="p-6">
+            <Skeleton lines={6} />
+          </div>
+        }
+      >
+        <Comp params={entry.params} api={entry.panel.api} panelId={entry.panelId} />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
@@ -349,7 +337,8 @@ function Watermark() {
   );
 }
 
-function PortalView({ entry }: { entry: PortalEntry }) {
+/** Mémoïsé : l'ajout ou le retrait d'un panneau ne re-rend pas les autres (seule leur entrée modifiée compte). */
+const PortalView = memo(function PortalView({ entry }: { entry: PortalEntry }) {
   switch (entry.kind) {
     case "content":
       return <PanelContent entry={entry} />;
@@ -360,7 +349,7 @@ function PortalView({ entry }: { entry: PortalEntry }) {
     case "watermark":
       return <Watermark />;
   }
-}
+});
 
 export function DockHost({ projectId }: { projectId: string }) {
   const ref = useRef<HTMLDivElement>(null);

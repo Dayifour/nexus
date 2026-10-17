@@ -2,6 +2,7 @@ export {
   buildBwrapArgs,
   EGRESS_SOCKET_MOUNT,
   findMaskedPaths,
+  gitMetadataPaths,
   isCredentialName,
   isEnvFileName,
   WORKSPACE_MOUNT,

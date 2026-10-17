@@ -275,3 +275,13 @@ test("plan invalide du superviseur : refusé avec explication, aucune tâche cr�
     "proposition refusée journalisée",
   );
 });
+
+test("M1 : extractJsonObject(accept) trouve l'objet du verdict malgré un objet ou des accolades avant/après", () => {
+  const isVerdict = (v: unknown) => typeof v === "object" && v !== null && "verdict" in v;
+  const answer =
+    'Exemple {"a":1} puis {pas du json} et enfin {"verdict":"approve","feedback":"ok {x}"} — fin {"autre":2}';
+  assert.deepEqual(extractJsonObject(answer, isVerdict), { verdict: "approve", feedback: "ok {x}" });
+  // Sans prédicat : comportement inchangé (premier objet seulement).
+  assert.deepEqual(extractJsonObject(answer), { a: 1 });
+  assert.equal(extractJsonObject("rien {cassé", isVerdict), undefined);
+});

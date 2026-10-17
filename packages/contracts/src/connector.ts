@@ -141,7 +141,13 @@ export const AgentEvent = z.discriminatedUnion("kind", [
     utilization: z.number().min(0).max(1).optional(),
     resetsAt: Timestamp.optional(),
   }),
-  z.strictObject({ kind: z.literal("completed"), ...base, resultRef: z.string().max(500) }),
+  /** `nativeSessionId` : pour les CLI qui ne donnent l'identifiant de session qu'à la fin (ex. Hermes `chat -Q`). */
+  z.strictObject({
+    kind: z.literal("completed"),
+    ...base,
+    resultRef: z.string().max(500),
+    nativeSessionId: z.string().max(200).optional(),
+  }),
   z.strictObject({ kind: z.literal("failed"), ...base, code: FailureCode, message: z.string().max(2000) }),
 ]);
 export type AgentEvent = z.infer<typeof AgentEvent>;

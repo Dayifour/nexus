@@ -179,6 +179,31 @@ export class EventStore {
     return rows.map(toDomainEvent);
   }
 
+  /**
+   * Événements de plusieurs agrégats filtrés dans la base (type, séquence globale), au lieu de tout charger.
+   * `last` : les `limit` plus récents (renvoyés dans l'ordre chronologique).
+   */
+  async queryEvents(q: {
+    aggregateIds: readonly string[];
+    eventType?: string;
+    afterGlobalSequence?: number;
+    limit?: number;
+    last?: boolean;
+  }): Promise<DomainEvent[]> {
+    if (q.aggregateIds.length === 0) return [];
+    const rows = await this.prisma.event.findMany({
+      where: {
+        aggregateId: { in: [...q.aggregateIds] },
+        ...(q.eventType !== undefined && { eventType: q.eventType }),
+        ...(q.afterGlobalSequence !== undefined && { globalSequence: { gt: q.afterGlobalSequence } }),
+      },
+      orderBy: { globalSequence: q.last ? "desc" : "asc" },
+      ...(q.limit !== undefined && { take: Math.min(Math.max(q.limit, 1), 100_000) }),
+    });
+    if (q.last) rows.reverse();
+    return rows.map(toDomainEvent);
+  }
+
   async readFrom(afterGlobalSequence: number, limit = 1000): Promise<DomainEvent[]> {
     const rows = await this.prisma.event.findMany({
       where: { globalSequence: { gt: afterGlobalSequence } },

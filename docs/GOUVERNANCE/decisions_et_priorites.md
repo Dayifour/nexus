@@ -1,11 +1,11 @@
 # Décisions, hiérarchie des sources et définition du MVP
 
-> Nexus AI — version documentaire 1.1, 10 octobre 2026. Statut : spécification, pas implémentation.
+> Nexus AI — spécification d'origine (version documentaire 1.1, 10 octobre 2026). Document de conception, conservé pour référence : l'état réel est décrit dans `docs/ARCHITECTURE.md`, `docs/USER_GUIDE.md` et `.coordination/STATUS.md` ; en cas d'écart, le code fait foi.
 
 ## Hiérarchie
 1. Sécurité vérifiée, conditions officielles des fournisseurs et lois applicables (contraintes non négociables).
 2. Décisions explicites les plus récentes de l'utilisateur : sandbox dès MVP ; GitHub/Vercel/voix ; persistance ; open source ; Ubuntu pour démarrer ; produit codage.
-3. `ID/idee.md` et exigences numérotées.
+3. `SOURCES_ORIGINALES/Nexus_AI_SPEC_MASTER_v1.md` et exigences numérotées.
 4. ADR adoptées dans le dépôt applicatif ; les ADR ne peuvent pas abolir un souhait explicite sans signaler la divergence.
 5. Exemples et hypothèses de réalisation.
 

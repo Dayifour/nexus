@@ -1,6 +1,6 @@
 {
   "name": "@nexus/contracts",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Schémas Zod versionnés partagés par tous les modules Nexus AI.",
   "type": "module",

@@ -1,6 +1,6 @@
 # Matrice de permissions initiale à implémenter
 
-> Nexus AI — version documentaire 1.1, 10 octobre 2026. Statut : spécification, pas implémentation.
+> Nexus AI — spécification d'origine (version documentaire 1.1, 10 octobre 2026). Document de conception, conservé pour référence : l'état réel est décrit dans `docs/ARCHITECTURE.md`, `docs/USER_GUIDE.md` et `.coordination/STATUS.md` ; en cas d'écart, le code fait foi.
 
 | Action | Manual | Notify | Sandbox-auto | Contrôle invariant |
 |---|---|---|---|---|

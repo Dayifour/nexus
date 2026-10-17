@@ -157,6 +157,26 @@ test("lecture : agrégat ordonné, flux global paginé, enveloppe validée", asy
   );
 });
 
+test("queryEvents : filtre par agrégats, type et séquence dans la base ; `last` = les plus récents en ordre", async (t) => {
+  const store = await EventStore.open({ filePath: dbPath(t) });
+  t.after(() => store.close());
+  const a = randomUUID();
+  const b = randomUUID();
+  const c = randomUUID();
+  await store.append([ev(a, 1), ev(b, 1), ev(c, 1), { ...ev(a, 2), eventType: "project.renamed" }, ev(b, 2)]);
+  assert.deepEqual(
+    (await store.queryEvents({ aggregateIds: [a, b], eventType: "project.created" })).map((e) => e.globalSequence),
+    [1, 2, 5],
+  );
+  assert.deepEqual(
+    (await store.queryEvents({ aggregateIds: [a, b], afterGlobalSequence: 1, limit: 2, last: true })).map(
+      (e) => e.globalSequence,
+    ),
+    [4, 5],
+  );
+  assert.deepEqual(await store.queryEvents({ aggregateIds: [] }), []);
+});
+
 test("replay : projections reconstruites à l'identique depuis le journal", async (t) => {
   const store = await EventStore.open({ filePath: dbPath(t), projectors: [projectsProjector] });
   t.after(() => store.close());

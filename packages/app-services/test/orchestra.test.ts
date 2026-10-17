@@ -19,11 +19,13 @@ const LEAD = `#!/usr/bin/env node
 const fs=require('fs');if(process.argv[2]==='--version'){console.log('fakelead 1.0.0');process.exit(0)}
 const p=fs.readFileSync(0,'utf8');
 if(p.includes('Découpe la mission')){
-  const t=(key,title,paths,deps)=>({key,title,description:title,allowedPaths:paths,dependsOn:deps,acceptance:[paths[0]+'/done.txt existe'],requiredCapabilities:['edit'],suggestedRole:p.includes('« Fake Bad »')?'Fake Bad':'Fake Work',risk:'low'});
+  const extra=p.includes('Chemin absent')?['docs-absent']:[];
+  const t=(key,title,paths,deps)=>({key,title,description:title,allowedPaths:[...paths,...extra],dependsOn:deps,acceptance:[paths[0]+'/done.txt existe'],requiredCapabilities:['edit'],suggestedRole:p.includes('« Fake Bad »')?'Fake Bad':'Fake Work',risk:'low'});
   console.log(JSON.stringify({schemaVersion:1,summary:'API puis interface',tasks:[t('api','API',['api'],[]),t('ui','Interface',['ui'],['api'])]}));
 } else if(p.includes('Relis le travail')){
   const isApi=p.includes('Tâche (Fake Work) : API');
   if(p.includes('Revue invalide')) console.log('réponse non structurée');
+  else if(p.includes('Chemin absent') && !p.includes('\`\`\`diff')) console.log(JSON.stringify({verdict:'changes',feedback:'diff absent'}));
   else if(isApi && !p.includes('v2')) console.log(JSON.stringify({verdict:'changes',feedback:'Passe la version à v2'}));
   else console.log(JSON.stringify({verdict:'approve',feedback:'OK'}));
 } else if(p.includes('Rédige pour l')){ console.log('Synthèse : API et interface livrées.'); }
@@ -56,7 +58,7 @@ function cipher(): Cipher {
   };
 }
 
-async function setup(t: TestContext) {
+async function setup(t: TestContext, opts: { sandbox?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nexus-orch-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = join(root, "repo");
@@ -79,7 +81,7 @@ async function setup(t: TestContext) {
   chmodSync(join(bin, "fakelead"), 0o755);
   chmodSync(join(bin, "fakework"), 0o755);
   const svcRef: { svc?: AppServices } = {};
-  const mk = (id: string, name: string, binName: string) =>
+  const mk = (id: string, name: string, binName: string, readOnly = true) =>
     new GenericCliConnector(
       {
         signature: {
@@ -93,11 +95,13 @@ async function setup(t: TestContext) {
         },
         args: [],
         promptVia: "stdin",
+        // Fausses CLI : la lecture seule est respectée (le faux chef n'écrit rien).
+        ...(readOnly && { readOnlyArgs: [] }),
       },
       {
         probeContext: { pathEnv: `${bin}:${NODE_DIR}:/usr/bin:/bin` },
         baseEnv: { PATH: `${NODE_DIR}:/usr/bin:/bin` },
-        runner: (o) => svcRef.svc!.runFor(o),
+        runner: (o, ctx) => svcRef.svc!.runFor(o, ctx),
       },
     );
   writeFileSync(
@@ -105,43 +109,53 @@ async function setup(t: TestContext) {
     '#!/bin/sh\n[ "$1" = --version ] && { echo fakebad 1.0.0; exit 0; }\necho "Erreur : non connecté" >&2\nexit 41\n',
   );
   chmodSync(join(bin, "fakebad"), 0o755);
-  const bad = mk("fake-bad", "Fake Bad", "fakebad");
+  const bad = mk("fake-bad", "Fake Bad", "fakebad", false);
   await bad.probe();
   const lead = mk("fake-lead", "Fake Lead", "fakelead");
   const work = mk("fake-work", "Fake Work", "fakework");
   await lead.probe();
   await work.probe();
   const events: IpcPushEvent[] = [];
-  const svc = await AppServices.open({
-    userDataDir: join(root, "ud"),
-    cipher: cipher(),
-    pathEnv: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-    home,
-    sandboxCapabilities: {
+  const open = async () => {
+    const svc = await AppServices.open({
+      userDataDir: join(root, "ud"),
+      cipher: cipher(),
+      pathEnv: `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      home,
+      sandboxCapabilities: {
+        platform: "linux",
+        bwrap: Boolean(opts.sandbox),
+        pidNamespace: true,
+        seccomp: Boolean(opts.sandbox),
+        cgroups: false,
+        reasons: ["test"],
+      },
+      extraConnectors: [lead, work, bad],
+      push: (e) => events.push(e),
+    });
+    svcRef.svc = svc;
+    const handlers = createAppHandlers(svc, {
+      appVersion: "0",
+      electron: "0",
+      node: process.versions.node,
       platform: "linux",
-      bwrap: false,
-      pidNamespace: true,
-      seccomp: false,
-      cgroups: false,
-      reasons: ["test"],
-    },
-    extraConnectors: [lead, work, bad],
-    push: (e) => events.push(e),
-  });
-  svcRef.svc = svc;
-  t.after(() => svc.close());
-  const handlers = createAppHandlers(svc, {
-    appVersion: "0",
-    electron: "0",
-    node: process.versions.node,
-    platform: "linux",
-  });
-  const call = async <C extends IpcChannel>(channel: C, payload: IpcRequest<C>): Promise<IpcResponse<C>> => {
-    const spec = ipcChannels[channel];
-    const h = handlers[channel] as (r: unknown) => unknown;
-    return spec.response.parse(await h(spec.request.parse(payload))) as IpcResponse<C>;
+    });
+    const call = async <C extends IpcChannel>(channel: C, payload: IpcRequest<C>): Promise<IpcResponse<C>> => {
+      const spec = ipcChannels[channel];
+      const h = handlers[channel] as (r: unknown) => unknown;
+      return spec.response.parse(await h(spec.request.parse(payload))) as IpcResponse<C>;
+    };
+    return { svc, call };
   };
-  return { repo, call, events };
+  let current = await open();
+  t.after(() => current.svc.close());
+  /** Fermeture puis réouverture de l'application (même dossier de données). */
+  const reopen = async () => {
+    await current.svc.close();
+    current = await open();
+    return current;
+  };
+  return { repo, root, call: current.call, svc: current.svc, events, reopen };
 }
 
 async function until(pred: () => Promise<boolean> | boolean, ms = 30_000): Promise<void> {
@@ -334,8 +348,15 @@ test("Orchestre : fichiers modifiés par l'équipe puis intégration au projet (
     ["api/done.txt", "ui/done.txt"],
   );
   assert.equal(existsSync(join(repo, "api", "done.txt")), false);
+  const ws = (await call("orchestra.get", { missionId })).workspacePath!;
+  assert.ok(existsSync(ws));
   await call("orchestra.merge", { missionId });
   assert.equal(readFileSync(join(repo, "api", "done.txt"), "utf8"), "v2\n", "travail intégré dans le projet");
+  // M9 : travail intégré → copie de travail et branche (fusionnée) supprimées.
+  assert.equal(existsSync(ws), false, "copie de travail supprimée après intégration");
+  const branches = execFileSync("git", ["-C", repo, "branch", "--list", "nexus/*"], { encoding: "utf8" });
+  assert.equal(branches.trim(), "", "branche fusionnée supprimée");
+  assert.equal((await call("orchestra.get", { missionId })).workspacePath, undefined);
 });
 
 test("Orchestre : agent défaillant → raison affichée, tâches réattribuées à un autre agent, objectif atteint", async (t) => {
@@ -381,4 +402,141 @@ test("Orchestre : une revue invalide échoue la tâche, sans approbation implici
   assert.equal(d.phase, "failed");
   assert.ok(d.tasks.some((task) => task.status === "failed"));
   assert.ok(!d.feed.some((entry) => entry.kind === "review" && entry.verdict === "approved"));
+});
+
+test("H4 : orchestre interrompu par la fermeture → « arrêté » au redémarrage, arrêt sans erreur, relance sur la même copie", async (t) => {
+  const { repo, call, reopen } = await setup(t);
+  const p = await call("projects.open", { rootPath: repo });
+  const { missionId } = await call("orchestra.start", {
+    projectId: p.projectId,
+    goal: "Interrompu puis relancé",
+    leadConnectorId: "fake-lead",
+    memberConnectorIds: ["fake-work"],
+    mode: "supervised",
+    autonomy: "approve-plan",
+  });
+  await until(async () => (await call("orchestra.get", { missionId })).phase === "awaiting_approval");
+  const ws = (await call("orchestra.get", { missionId })).workspacePath!;
+  const next = await reopen();
+  const d = await next.call("orchestra.get", { missionId });
+  assert.equal(d.phase, "stopped");
+  assert.ok(
+    d.feed.some((f) => /interrompu/i.test(f.text)),
+    "raison affichée",
+  );
+  assert.ok(
+    d.feed.some((f) => f.kind === "plan"),
+    "fil conservé (JSONL)",
+  );
+  await next.call("orchestra.stop", { missionId }); // ne lève pas
+  await next.call("orchestra.resume", { missionId });
+  await until(async () => (await next.call("orchestra.get", { missionId })).phase === "awaiting_approval");
+  await next.call("orchestra.approvePlan", { missionId });
+  await until(async () => ["done", "failed"].includes((await next.call("orchestra.get", { missionId })).phase), 60_000);
+  const done = await next.call("orchestra.get", { missionId });
+  assert.equal(done.phase, "done");
+  assert.equal(done.workspacePath, ws, "même copie de travail");
+  assert.equal(readFileSync(join(ws, "api", "done.txt"), "utf8"), "v2\n");
+});
+
+test("M2 : un chemin autorisé jamais créé n'empêche pas le diff de la revue", async (t) => {
+  const { repo, call } = await setup(t);
+  const p = await call("projects.open", { rootPath: repo });
+  const { missionId } = await call("orchestra.start", {
+    projectId: p.projectId,
+    goal: "Chemin absent dans le plan",
+    leadConnectorId: "fake-lead",
+    memberConnectorIds: ["fake-work"],
+    mode: "supervised",
+    autonomy: "full",
+  });
+  await until(async () => ["done", "failed"].includes((await call("orchestra.get", { missionId })).phase), 60_000);
+  const d = await call("orchestra.get", { missionId });
+  assert.equal(d.phase, "done", JSON.stringify(d.feed.map((f) => `${f.kind}:${f.text.slice(0, 80)}`)));
+});
+
+test("start : sandbox indisponible refusée côté serveur ; chef sans mode lecture seule refusé", async (t) => {
+  const { repo, call } = await setup(t);
+  const p = await call("projects.open", { rootPath: repo });
+  const base = {
+    projectId: p.projectId,
+    goal: "x",
+    leadConnectorId: "fake-lead",
+    memberConnectorIds: ["fake-work"],
+    mode: "sandboxed" as const,
+    autonomy: "full" as const,
+  };
+  await assert.rejects(call("orchestra.start", base), /sandbox/i);
+  await assert.rejects(
+    call("orchestra.start", { ...base, mode: "supervised", leadConnectorId: "fake-bad" }),
+    /lecture seule/,
+  );
+});
+
+test("M7 : mode d'exécution choisi par tâche, même si deux tâches partagent un dossier", async (t) => {
+  const { repo, call, svc } = await setup(t);
+  const p = await call("projects.open", { rootPath: repo });
+  const { core } = svc;
+  const team = await core.teams.create(
+    { projectId: p.projectId, name: "T", governanceMode: "MANUAL" },
+    { actorType: "user", actorId: "owner" },
+  );
+  const owner = { actorType: "user" as const, actorId: "owner" };
+  const agent = (permissionMode: "sandbox-auto" | "manual") =>
+    core.teams.addAgent(
+      team.teamId,
+      {
+        role: permissionMode,
+        displayName: "W",
+        connectorId: "fake-work",
+        permissionMode,
+        authMode: "vendor-login",
+        capabilities: ["edit"],
+      },
+      owner,
+    );
+  const sandboxed = await agent("sandbox-auto");
+  const manual = await agent("manual");
+  const mission = await core.missions.create(
+    { projectId: p.projectId, teamId: team.teamId, title: "m", prompt: "m" },
+    owner,
+  );
+  const [tS, tM] = await core.missions.addTasks(
+    mission.missionId,
+    [
+      {
+        title: "s",
+        description: "",
+        allowedPaths: ["s"],
+        acceptance: ["x"],
+        dependsOn: [],
+        assignedAgentId: sandboxed,
+      },
+      { title: "m", description: "", allowedPaths: ["m"], acceptance: ["x"], dependsOn: [], assignedAgentId: manual },
+    ],
+    owner,
+  );
+  svc.setMissionWorkspace(mission.missionId, repo);
+  const ws = await svc.workspaceFor(tS!);
+  assert.equal(await svc.workspaceFor(tM!), ws, "dossier partagé");
+  const run = (taskId: string) =>
+    svc.runFor({ file: "/bin/true", args: [], cwd: ws, env: {}, timeoutMs: 5000 }, { taskId });
+  assert.equal(
+    (await run(tS!)).spawnError,
+    "sandbox_unavailable",
+    "la tâche en sandbox n'est jamais lancée hors sandbox",
+  );
+  assert.equal((await run(tM!)).exitCode, 0);
+});
+
+test("bus de l'équipe : tous les agents CLI le reçoivent (Codex et Hermes compris)", async () => {
+  const { BUS_CONNECTORS } = await import("../src/orchestra.ts");
+  assert.deepEqual([...BUS_CONNECTORS].sort(), [
+    "claude-cli",
+    "codex-cli",
+    "gemini-cli",
+    "hermes-cli",
+    "opencode-cli",
+    "qwen-cli",
+  ]);
 });

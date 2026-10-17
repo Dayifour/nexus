@@ -56,31 +56,43 @@ export type CliTask = {
 };
 
 export function runCliTask(task: CliTask): AsyncIterable<AgentEvent> {
-  const queue = new AsyncQueue<AgentEvent>();
+  // Le consommateur qui cesse de lire (exception, `break`) arrête aussi la CLI : aucun processus orphelin.
+  const stop = new AbortController();
+  const onAbort = () => stop.abort();
+  if (task.signal.aborted) stop.abort();
+  else task.signal.addEventListener("abort", onAbort, { once: true });
+  const queue = new AsyncQueue<AgentEvent>({ onReturn: () => stop.abort() });
   const seq = new EventSequencer(task.taskId, (e) => queue.push(e));
   const stderrTail: string[] = [];
 
   void (async () => {
     try {
-      const r = await (task.runner ?? runProcess)({
+      const opts: RunOptions = {
         file: task.file,
         args: task.args,
         ...(task.stdin !== undefined && { stdin: task.stdin }),
         cwd: task.cwd,
         env: task.env,
         timeoutMs: task.timeoutMs,
-        signal: task.signal,
+        signal: stop.signal,
         ...(task.redact && { redact: task.redact }),
         ...(task.wrapper && { wrapper: task.wrapper }),
         onLine: (line, channel) => {
-          if (channel === "stdout") task.normalizer.onStdout(line, seq);
-          else {
-            stderrTail.push(line);
-            if (stderrTail.length > 20) stderrTail.shift();
-            task.normalizer.onStderr?.(line, seq);
+          // Appelé depuis un callback du processus : une exception ici deviendrait une uncaughtException. Une ligne
+          // que le normaliseur ne sait pas traduire (ou un événement non conforme au contrat) est écartée.
+          try {
+            if (channel === "stdout") task.normalizer.onStdout(line, seq);
+            else {
+              stderrTail.push(line);
+              if (stderrTail.length > 20) stderrTail.shift();
+              task.normalizer.onStderr?.(line, seq);
+            }
+          } catch {
+            /* ligne écartée : jamais d'événement non validé dans le journal */
           }
         },
-      });
+      };
+      const r = task.runner ? await task.runner(opts, { taskId: task.taskId }) : await runProcess(opts);
       if (r.spawnError)
         seq.fail(r.spawnError === "ENOENT" ? "binary_not_found" : "spawn_failed", `Cannot start CLI (${r.spawnError})`);
       else if (r.cancelled) seq.fail("cancelled", "Task cancelled");
@@ -99,6 +111,7 @@ export function runCliTask(task: CliTask): AsyncIterable<AgentEvent> {
     } catch (e) {
       seq.fail("spawn_failed", (e as Error).message);
     } finally {
+      task.signal.removeEventListener("abort", onAbort);
       queue.end();
     }
   })();

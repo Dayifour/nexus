@@ -20,8 +20,7 @@ import {
 } from "@nexus/connectors-api";
 import { DomainError, NexusCore } from "@nexus/core";
 import { GitBroker, locateGit } from "@nexus/git";
-import { GitHubBroker, locateGh, type PreparedPush } from "@nexus/github";
-import { locateVercel, VercelBroker, type PreparedDeployment } from "@nexus/deploy-vercel";
+import { GitHubBroker, locateGh } from "@nexus/github";
 import { runProcess, type RunOptions } from "@nexus/process-supervisor";
 import { probeSandbox, sandboxUsable, type SandboxCapabilities } from "@nexus/sandbox";
 import { SecretBroker, SecretVault, type Cipher } from "@nexus/secrets";
@@ -60,6 +59,8 @@ export type AppServicesOptions = {
   userEnv?: Record<string, string>;
 };
 
+type WorkspaceMode = { mode: PermissionMode; protectEnvFiles: boolean; connectorId: string; taskId: string };
+
 export class AppServices {
   readonly core: NexusCore;
   readonly registry: ConnectorRegistry;
@@ -75,17 +76,12 @@ export class AppServices {
   readonly probeContext: ProbeContext;
   readonly voice: VoiceController;
   readonly github: GitHubBroker | undefined;
-  readonly vercel: VercelBroker;
-  readonly vercelCliAvailable: boolean;
-  /** Plans préparés en attente d'approbation : seul le plan EXACT approuvé peut être exécuté. */
-  readonly pendingPushes = new Map<string, { repo: string; plan: PreparedPush }>();
-  readonly pendingDeployments = new Map<string, PreparedDeployment>();
-  /** Mode de permission par dossier de travail, enregistré à la création du worktree de la tâche. */
+  /** Copie de travail commune d'une mission (Orchestre), réenregistrée au démarrage depuis l'état persistant. */
   readonly #missionWorkspaces = new Map<string, string>();
-  readonly #workspaceModes = new Map<
-    string,
-    { mode: PermissionMode; protectEnvFiles: boolean; connectorId: string; taskId: string }
-  >();
+  /** Mode de permission par TÂCHE (plusieurs tâches de modes différents peuvent partager un dossier). */
+  readonly #taskModes = new Map<string, WorkspaceMode>();
+  /** Repli par dossier pour les lancements hors tâche (questions au chef dans la copie commune). */
+  readonly #workspaceModes = new Map<string, WorkspaceMode>();
   readonly settings: SettingsStore;
   readonly terminals: TerminalManager;
   readonly watcher: ProjectWatcher;
@@ -169,20 +165,6 @@ export class AppServices {
           approvals: parts.core.approvals,
         })
       : undefined;
-    const vercelPath = locateVercel(opts.pathEnv);
-    this.vercelCliAvailable = Boolean(vercelPath);
-    const broker = parts.broker;
-    this.vercel = new VercelBroker({
-      ...(vercelPath && { vercelPath }),
-      home: opts.home,
-      pathEnv: opts.pathEnv,
-      approvals: parts.core.approvals,
-      // Jeton facultatif (sinon la CLI utilise sa propre connexion) : fourni par le coffre, jamais en argument.
-      ...(broker && {
-        getToken: async () =>
-          parts.vault?.has("vercel:token") ? broker.withSecret("vercel:token", "broker:vercel", (v) => v) : undefined,
-      }),
-    });
   }
 
   static async open(opts: AppServicesOptions): Promise<AppServices> {
@@ -216,7 +198,7 @@ export class AppServices {
     const registry = new ConnectorRegistry();
     // L'objet services n'existe pas encore : runner et résolution de mode passent par une référence tardive.
     const ref: { svc?: AppServices } = {};
-    const runner: Runner = (o) => ref.svc!.runFor(o);
+    const runner: Runner = (o, ctx) => ref.svc!.runFor(o, ctx);
     const resolveMode = (policyId: string): PermissionMode =>
       (["read-only", "manual", "notify", "sandbox-auto", "autonomous"] as const).includes(policyId as PermissionMode)
         ? (policyId as PermissionMode)
@@ -233,11 +215,31 @@ export class AppServices {
         runner,
       }),
     );
-    registry.register(new CodexCliConnector({ probeContext, baseEnv, resolvePermissionMode: resolveMode, runner }));
+    // Dossier de configuration choisi par l'utilisateur (CODEX_HOME, HERMES_HOME) : le CLI y retrouve sa connexion.
+    const homeVar = (name: string): Record<string, string> =>
+      opts.userEnv?.[name] ? { [name]: opts.userEnv[name] } : {};
+    // Fichiers de configuration temporaires des agents (serveur MCP de l'équipe, jeton) : dossier privé de Nexus.
+    const runtimeDir = join(opts.userDataDir, "agent-runtime");
+    registry.register(
+      new CodexCliConnector({
+        probeContext,
+        baseEnv: { ...baseEnv, ...homeVar("CODEX_HOME") },
+        resolvePermissionMode: resolveMode,
+        runner,
+      }),
+    );
     for (const id of ["gemini-cli", "hermes-cli", "opencode-cli", "qwen-cli"]) {
       const signature = CLI_SIGNATURES.find((s) => s.connectorId === id)!;
       registry.register(
-        new GenericCliConnector({ signature, ...GENERIC_INVOCATIONS[id]! }, { probeContext, baseEnv, runner }),
+        new GenericCliConnector(
+          { signature, ...GENERIC_INVOCATIONS[id]! },
+          {
+            probeContext,
+            baseEnv: id === "hermes-cli" ? { ...baseEnv, ...homeVar("HERMES_HOME") } : baseEnv,
+            runner,
+            runtimeDir,
+          },
+        ),
       );
     }
     for (const c of opts.extraConnectors ?? []) registry.register(c);
@@ -257,11 +259,13 @@ export class AppServices {
     ref.svc = svc;
     core.store.subscribe((events) => svc.#forward(events));
     svc.#applySettings(svc.settings.get());
+    // Orchestres interrompus par la fermeture précédente : marqués arrêtés (relançables), copies communes retrouvées.
+    svc.orchestra.recover();
     return svc;
   }
 
   async close(): Promise<void> {
-    this.orchestra.closeAll();
+    await this.orchestra.closeAll();
     this.terminals.killAll();
     this.watcher.closeAll();
     await this.core.close();
@@ -293,8 +297,9 @@ export class AppServices {
    * le projet principal n'est jamais modifié directement par un agent.
    */
   /** Copie de travail commune à toutes les tâches d'une mission (Orchestre). */
-  setMissionWorkspace(missionId: string, path: string): void {
-    this.#missionWorkspaces.set(missionId, path);
+  setMissionWorkspace(missionId: string, path: string | undefined): void {
+    if (path) this.#missionWorkspaces.set(missionId, path);
+    else this.#missionWorkspaces.delete(missionId);
   }
 
   async workspaceFor(taskId: string): Promise<string> {
@@ -321,12 +326,9 @@ export class AppServices {
       workspace = existing?.path ?? (await this.git.createTaskWorktree(project.rootPath, taskId, "HEAD")).path;
     }
     workspace = realpathSync(workspace);
-    this.#workspaceModes.set(workspace, {
-      mode,
-      protectEnvFiles: project.protectEnvFiles,
-      connectorId: agent?.connectorId ?? "",
-      taskId,
-    });
+    const entry = { mode, protectEnvFiles: project.protectEnvFiles, connectorId: agent?.connectorId ?? "", taskId };
+    this.#taskModes.set(taskId, entry);
+    this.#workspaceModes.set(workspace, entry);
     return workspace;
   }
 
@@ -335,8 +337,8 @@ export class AppServices {
    * du CLI et un réseau limité à son fournisseur ; si la sandbox est indisponible, l'exécution est refusée (jamais
    * simulée). Les autres modes s'exécutent directement (frontière PID namespace pour l'arrêt).
    */
-  async runFor(o: RunOptions) {
-    const ws = this.#workspaceModes.get(o.cwd);
+  async runFor(o: RunOptions, ctx?: { taskId?: string }) {
+    const ws = (ctx?.taskId && this.#taskModes.get(ctx.taskId)) || this.#workspaceModes.get(o.cwd);
     if (ws?.mode !== "sandbox-auto") return runProcess(o);
     if (!sandboxUsable(this.sandbox)) {
       return {
@@ -365,17 +367,22 @@ export class AppServices {
 
   #forward(events: Awaited<ReturnType<NexusCore["store"]["readFrom"]>>): void {
     const push = this.#opts.push;
-    if (!push) return;
     for (const e of events) {
       if (e.eventType === "run.started")
         this.#runToTask.set(e.aggregateId, String((e.payload as { taskId: string }).taskId));
       if (e.eventType === "run.event") {
         const taskId = this.#runToTask.get(e.aggregateId);
         const ev = (e.payload as { event: AgentEvent }).event;
-        if (taskId) push({ type: "run", taskId, runId: e.aggregateId, event: ev });
+        if (taskId) push?.({ type: "run", taskId, runId: e.aggregateId, event: ev });
         continue; // les sorties ne déclenchent pas de rafraîchissement global
       }
-      push({
+      if (e.eventType === "run.finished") {
+        // Fin du run : correspondances devenues inutiles (mémoire bornée sur une longue session).
+        const taskId = this.#runToTask.get(e.aggregateId);
+        this.#runToTask.delete(e.aggregateId);
+        if (taskId) this.#taskModes.delete(taskId);
+      }
+      push?.({
         type: "domain",
         globalSequence: e.globalSequence,
         aggregateType: e.aggregateType,

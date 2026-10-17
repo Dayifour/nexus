@@ -24,7 +24,8 @@ export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ["completed", "fail
 export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
   draft: ["ready", "cancelled"],
   ready: ["queued", "draft", "cancelled"],
-  queued: ["running", "ready", "cancelled", "interrupted"],
+  // `failed` : la préparation a échoué avant le lancement (connecteur indisponible, dossier de travail impossible…).
+  queued: ["running", "ready", "cancelled", "interrupted", "failed"],
   running: ["waiting_input", "waiting_review", "completed", "failed", "cancelled", "interrupted"],
   waiting_input: ["running", "cancelled", "interrupted", "failed"],
   // `queued` : l'utilisateur demande des changements et relance la session avec une nouvelle consigne.

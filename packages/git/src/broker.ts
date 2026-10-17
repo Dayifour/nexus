@@ -3,6 +3,9 @@
 // - Environnement construit ici, jamais hérité de process.env.
 // - Noms de réf validés par liste blanche, chemins après `--` avec GIT_LITERAL_PATHSPECS=1.
 // - Hooks, fsmonitor, diff externes, textconv et transports désactivés : un dépôt non fiable n'exécute rien via git.
+// - Config du dépôt (local/worktree) : toute clé capable de lancer une commande (filtres clean/smudge/process, pilotes
+//   de diff/merge, include…) fait refuser l'opération (UNSAFE_REPO_CONFIG) ; les autres sont neutralisées par `-c`.
+// - Worktree de tâche : son gitdir doit être celui enregistré par le dépôt principal (pointeur `.git` non falsifié).
 // - Aucune action distante ici (push : T-018). `planPush` (plan.ts) produit seulement le plan à approuver.
 import {
   existsSync,
@@ -10,6 +13,7 @@ import {
   mkdtempSync,
   openSync,
   readSync,
+  readFileSync,
   closeSync,
   fstatSync,
   realpathSync,
@@ -117,7 +121,62 @@ const GLOBAL_ARGS = [
   "color.ui=false",
   "-c",
   "advice.detachedHead=false",
+  // Commandes configurables jamais utiles au broker : neutralisées quelle que soit la config du dépôt.
+  "-c",
+  "core.sshCommand=false",
+  "-c",
+  "core.editor=false",
+  "-c",
+  "sequence.editor=false",
+  "-c",
+  "core.pager=cat",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "commit.gpgSign=false",
+  "-c",
+  "tag.gpgSign=false",
+  "-c",
+  "merge.verifySignatures=false",
+  "-c",
+  "log.showSignature=false",
+  "-c",
+  "gc.auto=0",
+  "-c",
+  "maintenance.auto=false",
+  "-c",
+  "submodule.recurse=false",
+  "-c",
+  "diff.ignoreSubmodules=dirty",
 ] as const;
+
+/**
+ * Clés de config (portée local/worktree, includes suivis) capables d'exécuter une commande pendant les opérations du
+ * broker (status, diff, add, commit, worktree add, merge) et non neutralisables par `-c` (noms choisis par le dépôt).
+ * Les includes sont refusés : ils peuvent désigner n'importe quel fichier.
+ */
+const UNSAFE_CONFIG_KEYS: readonly RegExp[] = [
+  /^include\./,
+  /^includeif\./,
+  /^filter\..+\.(clean|smudge|process)$/,
+  /^diff\..+\.(textconv|command)$/,
+  /^diff\.external$/,
+  /^merge\..+\.driver$/,
+  /^trailer\..+\.(command|cmd)$/,
+  /^core\.worktree$/,
+];
+
+export function unsafeConfigKeys(listZ: string): string[] {
+  const out: string[] = [];
+  const parts = listZ.split("\0");
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const scope = parts[i]!;
+    const key = (parts[i + 1]!.split("\n", 1)[0] ?? "").toLowerCase();
+    if (scope !== "local" && scope !== "worktree") continue;
+    if (UNSAFE_CONFIG_KEYS.some((re) => re.test(key)) && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
 
 const DIFF_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "-M"] as const;
 
@@ -165,6 +224,7 @@ export class GitBroker {
       LC_ALL: "C",
       GIT_TERMINAL_PROMPT: "0",
       GIT_CONFIG_NOSYSTEM: "1",
+      GIT_ATTR_NOSYSTEM: "1",
       GIT_LITERAL_PATHSPECS: "1",
       GIT_OPTIONAL_LOCKS: "0",
       GIT_NO_REPLACE_OBJECTS: "1",
@@ -219,7 +279,27 @@ export class GitBroker {
     const [top, gitDir, commonDir] = r.stdout.split("\n");
     if (r.code !== 0 || !top || !gitDir || !commonDir) throw new GitError("NOT_A_REPOSITORY", "pas un dépôt git");
     if (real(top) !== p) throw new GitError("NOT_A_REPOSITORY", "le chemin n'est pas la racine d'un worktree");
+    await this.assertSafeRepoConfig(p);
     return { top: p, gitDir: real(gitDir), commonDir: real(commonDir), isMain: real(gitDir) === real(commonDir) };
+  }
+
+  /**
+   * Refuse un dépôt dont la config locale (ou de worktree, includes compris) définit une commande exécutable
+   * (filtre clean/smudge/process, pilote de diff ou de merge, include…) : git l'exécuterait sur l'hôte, hors sandbox.
+   */
+  async assertSafeRepoConfig(path: string): Promise<void> {
+    if (typeof path !== "string" || !isAbsolute(path)) throw new GitError("INVALID_PATH", "chemin absolu requis");
+    const r = await this.git(real(path), ["config", "--list", "--show-scope", "-z"], { ok: [0, 1, 128] });
+    if (r.code === 128)
+      throw new GitError("UNSAFE_REPO_CONFIG", "configuration git du dépôt illisible : opération refusée");
+    const keys = unsafeConfigKeys(r.stdout);
+    if (keys.length > 0) {
+      throw new GitError(
+        "UNSAFE_REPO_CONFIG",
+        `configuration git du dépôt refusée : ${keys.slice(0, 10).join(", ")} peut exécuter une commande sur l'hôte`,
+        { keys: keys.slice(0, 50) },
+      );
+    }
   }
 
   private async requireMain(repo: string): Promise<RepoInfo> {
@@ -243,11 +323,43 @@ export class GitBroker {
     if (info.isMain || !root || !isInside(info.top, root) || info.top === root) {
       throw new GitError("NOT_TASK_WORKTREE", "opération réservée aux worktrees de tâche gérés par Nexus");
     }
+    await this.assertRegisteredWorktree(info, root);
     const branch = await this.currentBranch(info.top);
     if (!branch || !TASK_BRANCH.test(branch)) {
       throw new GitError("NOT_TASK_WORKTREE", "le worktree n'est pas sur une branche nexus/task-<id>");
     }
     return { ...info, branch };
+  }
+
+  /**
+   * Le pointeur `.git` d'un worktree est un fichier du workspace : falsifié, il désignerait un gitdir (et sa config)
+   * choisi par l'agent. Exigé : gitdir = `<commonDir>/worktrees/<nom>`, dont le `gitdir` pointe en retour sur ce
+   * worktree, commonDir hors des worktrees de tâche, et worktree listé par le dépôt principal.
+   */
+  private async assertRegisteredWorktree(info: RepoInfo, root: string): Promise<void> {
+    const forged = () =>
+      new GitError("NOT_TASK_WORKTREE", "pointeur gitdir du worktree non reconnu par le dépôt principal : refusé");
+    if (dirname(info.gitDir) !== join(info.commonDir, "worktrees")) throw forged();
+    if (isInside(info.commonDir, root) || isInside(info.gitDir, info.top)) throw forged();
+    let back: string;
+    try {
+      back = readFileSync(join(info.gitDir, "gitdir"), "utf8").trim();
+      back = realpathSync(isAbsolute(back) ? back : join(info.gitDir, back));
+    } catch {
+      throw forged();
+    }
+    if (back !== join(info.top, ".git")) throw forged();
+    if (basename(info.commonDir) !== ".git") throw forged(); // dépôt principal non nu attendu
+    const mainTop = dirname(info.commonDir);
+    let main: RepoInfo;
+    try {
+      main = await this.requireMain(mainTop);
+    } catch (e) {
+      if (e instanceof GitError && e.code === "UNSAFE_REPO_CONFIG") throw e;
+      throw forged();
+    }
+    if (main.commonDir !== info.commonDir) throw forged();
+    if (!(await this.listTaskWorktrees(main.top)).some((w) => w.path === info.top)) throw forged();
   }
 
   private async resolveCommit(cwd: string, ref: string): Promise<string> {
@@ -279,7 +391,8 @@ export class GitBroker {
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
-      "--ignore-submodules=none",
+      // `dirty` : l'état d'un sous-module est lu sans lancer git dans son dossier (sa config n'est pas vérifiée).
+      "--ignore-submodules=dirty",
     ]);
     const { entries, truncated } = parsePorcelainZ(r.stdout);
     return { branch: await this.currentBranch(info.top), clean: entries.length === 0, entries, truncated };

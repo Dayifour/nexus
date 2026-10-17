@@ -3,18 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  ScanRefusedError,
-  buildArchitectureReport,
-  buildFlowchart,
-  escapeMermaidLabel,
-  exportFiles,
-  matchWorkspacePattern,
-  parseCompose,
-  scanProject,
-  toMarkdown,
-  type ProjectScan,
-} from "../src/index.ts";
+import { ScanRefusedError, matchWorkspacePattern, parseCompose, scanProject, type ProjectScan } from "../src/index.ts";
 
 type T = { after: (fn: () => unknown) => void };
 
@@ -35,7 +24,7 @@ const idOf = (scan: ProjectScan, name: string) => {
   return c.id;
 };
 
-test("monorepo npm : 2 workspaces dépendants, frameworks, nœuds et arêtes Mermaid", (t) => {
+test("monorepo npm : 2 workspaces dépendants, frameworks et dépendances", (t) => {
   const root = tmp(t);
   write(root, "package.json", JSON.stringify({ name: "mono", workspaces: ["packages/*", "apps/*"] }));
   write(
@@ -62,17 +51,6 @@ test("monorepo npm : 2 workspaces dépendants, frameworks, nœuds et arêtes Mer
   assert.ok(scan.edges.some((e) => e.from === web.id && e.to === db.id && e.kind === "workspace-dependency"));
   const mono = idOf(scan, "mono");
   assert.equal(scan.edges.filter((e) => e.from === mono && e.kind === "workspace-member").length, 2);
-
-  const fc = buildFlowchart(scan).code;
-  assert.match(fc, /^flowchart LR\n/);
-  assert.ok(fc.includes(`${web.id}["@acme/web (npm, `));
-  assert.ok(fc.includes(`${web.id} -->|"dépend de"| ${db.id}`));
-  assert.ok(fc.includes(`${mono} -.->|"workspace"| ${db.id}`));
-
-  const report = buildArchitectureReport(scan);
-  assert.match(report.sequence.code, /^sequenceDiagram\n/);
-  assert.match(report.sequence.code, /participant p0 as @acme\/web \(interface\)/);
-  assert.match(report.sequence.code, /Gabarit/);
 });
 
 test("docker-compose à 2 services : services, depends_on et build", (t) => {
@@ -109,13 +87,6 @@ test("docker-compose à 2 services : services, depends_on et build", (t) => {
   assert.ok(scan.edges.some((e) => e.from === api.id && e.to === db.id && e.kind === "compose-depends-on"));
   assert.ok(scan.edges.some((e) => e.from === api.id && e.kind === "builds-from"));
 
-  const fc = buildFlowchart(scan).code;
-  assert.ok(fc.includes(`${db.id}{{"db (service compose, postgres#58;17)"}}`), fc);
-  assert.ok(fc.includes(`${api.id} -->|"depends_on"| ${db.id}`));
-  const seq = buildArchitectureReport(scan).sequence.code;
-  assert.match(seq, /participant p1 as api \(API\)/);
-  assert.match(seq, /participant p2 as db \(données\)/);
-
   // Formes alternatives de depends_on.
   const alt = parseCompose(
     'services:\n  a:\n    depends_on: [b, "c"]\n  b:\n    depends_on:\n      - c\n  c:\n    image: redis\n',
@@ -144,20 +115,10 @@ test("projet Python : requirements.txt + pyproject.toml fusionnés, frameworks d
   assert.equal(py[0]?.name, "inventaire");
   assert.deepEqual(py[0]?.frameworks.sort(), ["FastAPI", "SQLAlchemy"]);
   assert.ok(py[0]?.details.dependencies?.includes("uvicorn"));
-  const fc = buildFlowchart(scan).code;
-  assert.ok(fc.includes(`${py[0]?.id}["inventaire (Python, `));
-  const md = toMarkdown(buildArchitectureReport(scan), "inventaire");
-  assert.match(md, /analyseur TOML partiel/);
 });
 
-test("noms hostiles échappés : aucune injection de syntaxe Mermaid ni Markdown", (t) => {
+test("noms hostiles : conservés comme données, dépendance interne retrouvée", (t) => {
   const hostile = 'a"]-->B[x';
-  const esc = escapeMermaidLabel(hostile);
-  assert.equal(esc, "a#34;#93;#45;#45;#62;B#91;x");
-  assert.equal(escapeMermaidLabel("l1\nl2\r\n%%{init}%%;click"), "l1 l2 #37;#37;#123;init#125;#37;#37;#59;click");
-  assert.ok(!escapeMermaidLabel("x\u202Ey").includes("\u202E"), "contrôle bidi retiré");
-  assert.equal([...escapeMermaidLabel("a".repeat(500))].length, 80);
-
   const root = tmp(t);
   write(root, "package.json", JSON.stringify({ name: "mono", workspaces: ["pkgs/*"] }));
   write(root, "pkgs/a/package.json", JSON.stringify({ name: hostile, dependencies: { "evil\nflowchart TD": "1" } }));
@@ -169,27 +130,10 @@ test("noms hostiles échappés : aucune injection de syntaxe Mermaid ni Markdown
   write(root, "docker-compose.yml", 'services:\n  "w]-->z":\n    image: "img\\"]"\n');
 
   const scan = scanProject({ root, allowedRoots: [root] });
-  const report = buildArchitectureReport(scan);
-  const fc = report.flowchart.code;
-  const lines = fc.trimEnd().split("\n");
-  // Chaque ligne est soit l'en-tête, soit une déclaration de nœud `cN<forme>"…"<forme>`, soit une arête entre ids.
-  const node = /^ {2}c\d+(\["[^"\n]*"\]|\{\{"[^"\n]*"\}\}|\[\/"[^"\n]*"\/\]|\(\["[^"\n]*"\]\))$/;
-  const edge = /^ {2}c\d+ (-->|-\.->)\|"[^"\n]*"\| c\d+$/;
-  assert.equal(lines[0], "flowchart LR");
-  for (const l of lines.slice(1)) assert.ok(node.test(l) || edge.test(l), `ligne inattendue : ${l}`);
-  assert.ok(!fc.includes("-->B"), "flèche hostile neutralisée");
-  assert.ok(fc.includes("a#34;#93;"));
   const a = idOf(scan, hostile);
   const b = idOf(scan, "ok\nB-->C;click B call x()");
-  assert.ok(fc.includes(`${b} -->|"dépend de"| ${a}`), "l'arête interne survit à l'échappement");
-
-  for (const f of exportFiles(report, hostile)) {
-    if (f.filename.endsWith(".mmd")) {
-      for (const l of f.content.split("\n")) if (l.startsWith("%%")) assert.ok(!l.includes("\r"));
-    }
-  }
-  const md = toMarkdown(report, hostile);
-  assert.equal(md.split("\n")[0], '# Architecture — a"\\]\\-\\-\\>B\\[x');
+  assert.ok(/^c\d+$/.test(a) && /^c\d+$/.test(b), "identifiants internes jamais dérivés des noms");
+  assert.ok(scan.edges.some((e) => e.from === b && e.to === a && e.kind === "workspace-dependency"));
 });
 
 test("symlink sortant non suivi, .env jamais lu, gros fichiers ignorés, liste blanche imposée", (t) => {
@@ -217,11 +161,7 @@ test("symlink sortant non suivi, .env jamais lu, gros fichiers ignorés, liste b
   assert.ok(scan.skipped.some((s) => s.path === "big/package.json" && s.reason === "too-large"));
   assert.equal(scan.envFilesIgnored, 3);
   assert.ok(!scan.manifestsRead.some((m) => m.includes(".env")));
-  const all =
-    JSON.stringify(scan) +
-    exportFiles(buildArchitectureReport(scan), "app")
-      .map((f) => f.content)
-      .join("");
+  const all = JSON.stringify(scan);
   assert.ok(!all.includes("sk-ne-doit") && !all.includes("TOKEN=") && !all.includes("secret-"));
 
   assert.throws(() => scanProject({ root, allowedRoots: [join(base, "autre")] }), ScanRefusedError);
@@ -231,7 +171,7 @@ test("symlink sortant non suivi, .env jamais lu, gros fichiers ignorés, liste b
   assert.throws(() => scanProject({ root: join(root, "raccourci"), allowedRoots: [root] }), ScanRefusedError);
 });
 
-test("section « Hypothèses et limites » présente dans Markdown et .mmd", (t) => {
+test("go.mod et Cargo.toml : frameworks détectés, .env ignoré sans lecture", (t) => {
   const root = tmp(t);
   write(root, "go.mod", "module example.com/svc\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.10.0\n)\n");
   write(root, "Cargo.toml", '[package]\nname = "outil"\n\n[dependencies]\naxum = "0.8"\n');
@@ -244,27 +184,8 @@ test("section « Hypothèses et limites » présente dans Markdown et .mmd", (t)
       .sort(),
     ["Axum", "Gin"],
   );
-  const report = buildArchitectureReport(scan);
-  const files = exportFiles(report, "svc");
-  assert.deepEqual(
-    files.map((f) => f.filename),
-    ["architecture-flowchart.mmd", "architecture-sequence.mmd", "ARCHITECTURE.md"],
-  );
-  const md = files[2]?.content ?? "";
-  assert.match(md, /## Hypothèses et limites/);
-  assert.match(md, /### Déduit \(analyse statique\)/);
-  assert.match(md, /### Inconnu ou non vérifié/);
-  assert.match(md, /fichiers \.env\* ignorés sans lecture/);
-  assert.match(md, /0 jeton/);
-  assert.match(md, /```mermaid\nflowchart LR/);
-  const mmd = files[0]?.content ?? "";
-  assert.match(mmd, /^%% Composants et dépendances/);
-  assert.match(mmd, /%% Hypothèses et limites :/);
-  assert.match(mmd, /\nflowchart LR\n/);
-
-  const empty = buildArchitectureReport(scanProject({ root: tmp(t), allowedRoots: [tmpdir()] }));
-  assert.ok(empty.assumptions.unknown.some((u) => u.includes("Aucun manifeste reconnu")));
-  assert.match(empty.flowchart.code, /empty\["Aucun composant détecté"\]/);
+  assert.equal(scan.envFilesIgnored, 1);
+  assert.deepEqual(scanProject({ root: tmp(t), allowedRoots: [tmpdir()] }).components, []);
 });
 
 test("motifs de workspaces", () => {

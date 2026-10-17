@@ -2,6 +2,7 @@ export { createLineSplitter, type LineError, type LineSplitter } from "./lines.t
 export { createRedactor, redactKnownTokenPatterns, type Redactor } from "./redact.ts";
 export { resolveExecutable, type ResolvedExecutable, type ResolveRejection } from "./resolve.ts";
 export {
+  defaultKillBoundary,
   isAlive,
   probeKillBoundary,
   runProcess,

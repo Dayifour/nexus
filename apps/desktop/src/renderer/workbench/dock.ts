@@ -30,24 +30,19 @@ export type PanelComponent =
   | "diff"
   | "terminal"
   | "session"
-  | "mission"
   | "settings"
   | "usage"
   | "deployment"
   | "shortcuts"
   | "agentOutput"
   | "orchestra"
-  | "log"
-  | "delivery"
-  | "approvals"
-  | "teams";
+  | "log";
 
 const KNOWN_COMPONENTS = new Set<string>([
   "editor",
   "diff",
   "terminal",
   "session",
-  "mission",
   "settings",
   "usage",
   "deployment",
@@ -55,9 +50,6 @@ const KNOWN_COMPONENTS = new Set<string>([
   "agentOutput",
   "orchestra",
   "log",
-  "delivery",
-  "approvals",
-  "teams",
 ] satisfies PanelComponent[]);
 
 export interface PanelParams {
@@ -258,7 +250,7 @@ interface StoredLayout {
   layout: SerializedDockview;
 }
 /** Contenus propres au panneau bas (terminaux, sortie de l'agent, journal) : jamais dans la zone d'édition par défaut. */
-const UTILITY_COMPONENTS = new Set<string>(["settings", "delivery", "usage", "shortcuts", "approvals", "teams"]);
+const UTILITY_COMPONENTS = new Set<string>(["settings", "usage", "shortcuts"]);
 export const BOTTOM_COMPONENTS = new Set<string>(["terminal", "agentOutput", "log"]);
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -454,10 +446,13 @@ export function mountDock(element: HTMLElement, projectId: string): () => void {
       dock.fromJSON(saved);
       // Vues retirées et éditeurs sans titre (contenu non enregistré, non persisté) ne sont pas restaurés.
       // Vues utilitaires (réglages, publication, consommation…) : jamais rouvertes automatiquement au démarrage.
+      // Terminaux d'agent : leur PTY n'a pas survécu au redémarrage ; les restaurer afficherait un faux terminal
+      // d'agent (un shell ordinaire). La session se rouvre depuis la liste (« Reprendre dans le terminal »).
       const stale = dock.panels.filter(
         (p) =>
           !KNOWN_COMPONENTS.has(p.api.component) ||
           UTILITY_COMPONENTS.has(p.api.component) ||
+          p.id.startsWith("agent-term:") ||
           (p.params as PanelParams | undefined)?.untitled,
       );
       recordClosed = false;
@@ -755,51 +750,60 @@ export function openSession(taskId: string, title: string): void {
 }
 
 /**
- * Comparaison d'agents : une colonne par agent, côte à côte dans la zone principale (terminal ou conversation).
+ * Comparaison d'agents : une colonne par agent, côte à côte dans la zone principale. En mode Terminal, ce sont les
+ * terminaux des agents (TUI) qui sont alignés en colonnes — pas des onglets empilés dans le panneau bas — pour suivre
+ * les agents d'un même coup d'œil ; en mode Conversation, leurs panneaux de session.
  */
 export function openSideBySide(
   items: Array<{ taskId: string; title: string; terminalId?: string; cwd?: string }>,
 ): void {
   if (!api) return;
-  // Comparaison en mode Terminal : un onglet par agent dans le panneau bas ; la conversation côte à côte en haut.
-  for (const it of items) {
-    if (it.terminalId)
-      openAgentTerminal({
-        terminalId: it.terminalId,
-        title: it.title,
-        taskId: it.taskId,
-        ...(it.cwd && { cwd: it.cwd }),
-        inactive: true,
-      });
-  }
-  // Disposition des conversations : colonnes (≤ 3 agents et assez de largeur), grille 2×N au-delà ou si la zone est
-  // moyenne, onglets d'un même groupe si elle est étroite — jamais 6 colonnes écrasées.
+  // Disposition : colonnes (≤ 3 agents et assez de largeur), grille 2×N au-delà ou si la zone est moyenne, onglets
+  // d'un même groupe si elle est étroite — jamais 6 colonnes écrasées.
   const width = api.width || window.innerWidth;
   const n = items.length;
   const cols = n <= 3 && width / n >= 380 ? n : width >= 760 ? 2 : 1;
   const placed: IDockviewPanel[] = [];
   items.forEach((it, i) => {
     if (!api) return;
-    const id = `session:${it.taskId}`;
-    api.getPanel(id)?.api.close();
+    const asTerminal = Boolean(it.terminalId);
+    const id = asTerminal ? `agent-term:${it.taskId}` : `session:${it.taskId}`;
+    const existing = api.getPanel(id);
+    // Même PTY déjà affiché : l'onglet est déplacé dans la grille (le fermer tuerait l'agent).
+    if (existing && asTerminal && (existing.params as PanelParams | undefined)?.attachTerminalId === it.terminalId) {
+      const first = placed[0];
+      try {
+        if (!first) existing.api.moveTo({ group: mainGroup() ?? api.addGroup({ direction: "left" }) });
+        else
+          existing.api.moveTo({ group: api.addGroup({ referencePanel: placed[i - 1] ?? first, direction: "right" }) });
+      } catch {
+        // disposition en cours de reconstruction : l'onglet reste où il est
+      }
+      placed.push(existing);
+      return;
+    }
+    existing?.api.close();
+    const title = it.title.slice(0, 80);
     const common = {
       id,
-      component: "session" as PanelComponent,
-      tabComponent: "session",
-      title: it.title,
-      params: { taskId: it.taskId } satisfies PanelParams,
+      component: (asTerminal ? "terminal" : "session") as PanelComponent,
+      tabComponent: asTerminal ? "terminal" : "session",
+      title,
+      renderer: "always" as const,
+      params: (asTerminal
+        ? { attachTerminalId: it.terminalId, cwd: it.cwd, label: title, taskId: it.taskId }
+        : { taskId: it.taskId }) satisfies PanelParams,
     };
     const first = placed[0];
     let panel: IDockviewPanel | undefined;
-    if (!first) panel = addToMain({ ...common, renderer: "always" });
-    else if (cols === 1)
-      panel = api.addPanel({ ...common, renderer: "always", position: { referenceGroup: first.group } });
+    if (!first) panel = addToMain(common);
+    else if (cols === 1) panel = api.addPanel({ ...common, position: { referenceGroup: first.group } });
     else if (i % cols !== 0) {
       const left = placed[i - 1] ?? first;
-      panel = api.addPanel({ ...common, renderer: "always", position: { referencePanel: left, direction: "right" } });
+      panel = api.addPanel({ ...common, position: { referencePanel: left, direction: "right" } });
     } else {
       const above = placed[i - cols] ?? first;
-      panel = api.addPanel({ ...common, renderer: "always", position: { referencePanel: above, direction: "below" } });
+      panel = api.addPanel({ ...common, position: { referencePanel: above, direction: "below" } });
     }
     if (panel) placed.push(panel);
   });
@@ -816,17 +820,7 @@ export function openOrchestra(missionId: string, title: string): void {
   addToMain({ id, component: "orchestra", title: title.slice(0, 60), params: { missionId }, renderer: "always" });
 }
 
-export function openMission(missionId: string, title: string): void {
-  if (!api) return;
-  const id = `mission:${missionId}`;
-  const existing = api.getPanel(id);
-  if (existing) return existing.api.setActive();
-  addToMain({ id, component: "mission", title, params: { missionId } });
-}
-
-export function openView(
-  component: "settings" | "usage" | "deployment" | "delivery" | "approvals" | "teams" | "shortcuts",
-): void {
+export function openView(component: "settings" | "usage" | "deployment" | "shortcuts"): void {
   if (!api) return;
   const id = `view:${component}`;
   const existing = api.getPanel(id);

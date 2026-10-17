@@ -5,7 +5,7 @@
 - **Date :** 10 octobre 2026.
 - **Ticket :** T-001 — POC streams + permissions + sandbox spike.
 - **Portée :** Ubuntu/Linux uniquement. Aucune conclusion pour Windows ni macOS.
-- **Sources :** `docs/ID/idee.md` §7, §9, §12, §19, §20 ; `docs/SECURITE/politique.md` ; `docs/SECURITE/matrice_permissions.md` ; `docs/runbooks/environment.md` (T-000).
+- **Sources :** `docs/SOURCES_ORIGINALES/Nexus_AI_SPEC_MASTER_v1.md` §7, §9, §12, §19, §20 ; `docs/SECURITE/politique.md` ; `docs/SECURITE/matrice_permissions.md` ; `docs/runbooks/environment.md` (T-000).
 - **Preuves :** `spikes/t001/**`, `tests/security/t001/**`.
 
 ## 1. Contexte
@@ -231,3 +231,24 @@ supprimer `spikes/t001/`, `tests/security/t001/` et ce fichier, ou abandonner la
 Les tests nettoient leurs répertoires temporaires. Après la suite complète, y compris les scénarios `setsid`,
 aucun processus résiduel n'a été observé (`pgrep` après expiration du garde-fou de 8 s des fixtures). Cette
 observation vaut pour les scénarios testés, pas comme garantie générale.
+
+## Addendum (16/10/2026) — Frontière d'arrêt multiplateforme et mort du parent
+
+La frontière par défaut de `runProcess` dépend désormais de la plateforme (`defaultKillBoundary`) :
+
+| Plateforme | Frontière | Arrêt | Mort brutale de Nexus |
+| --- | --- | --- | --- |
+| Linux | `pid-namespace` (inchangé, strict) | SIGTERM → SIGKILL au groupe ; le noyau tue le namespace | `setpriv --pdeathsig KILL` devant `unshare` : le noyau tue unshare, `--kill-child` tue le namespace |
+| macOS | `process-group` | `kill(-pgid)` SIGTERM → SIGKILL | non protégée |
+| Windows | `process-tree` | `%SystemRoot%\System32\taskkill.exe /PID <pid> /T` puis `/T /F` (sans shell) | non protégée |
+
+- Linux reste strict : sans `unshare` utilisable, l'exécution est refusée (`kill_boundary_unavailable`), pas
+  dégradée en groupe de processus (constat 7). `unshare` et `setpriv` sont cherchés dans les dossiers système
+  (`/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`, `/run/current-system/sw/bin`) puis dans les entrées absolues du PATH
+  (exécutable modifiable par tous refusé). Sans `setpriv`, la frontière reste entière mais la mort du parent n'est
+  pas couverte (`probeKillBoundary().parentDeath === false`). Fenêtre résiduelle : si Nexus meurt entre le `fork`
+  et le `prctl` de setpriv, le signal n'est pas armé.
+- macOS et Windows : frontières plus faibles, acceptées faute de mieux. Un descendant `setsid` échappe au groupe
+  (macOS) ; un descendant dont le parent est déjà terminé n'est plus rattaché à l'arbre (Windows). Correctifs
+  possibles, non implémentés : Job Object `KILL_ON_JOB_CLOSE` (Windows, code natif), surveillance de `getppid`
+  par une enveloppe (macOS). Ces deux plateformes n'ont pas été vérifiées sur machine réelle.

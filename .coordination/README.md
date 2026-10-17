@@ -1,5 +1,9 @@
 # Coordination Hermes ↔ Claude
 
+> **Historique.** Cette boîte aux lettres Hermes ↔ Claude n'est plus utilisée depuis le 11/10/2026 (Hermes ne participe
+> plus au développement). L'état courant est dans `STATUS.md`, les décisions dans `DECISIONS.md`, les conventions dans
+> `CLAUDE.md` à la racine.
+
 Boîte aux lettres fichier entre les deux agents du projet. Approuvée par le propriétaire le 10/10/2026.
 Elle ne remplace ni les règles de `docs/00_START_HERE.md`, ni le plan `.hermes/plans/`, ni les ADR.
 

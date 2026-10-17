@@ -1,6 +1,6 @@
 {
   "name": "@nexus/deploy-planner",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Plan de déploiement : analyse du projet, propositions d'hébergement ajustées par l'IA, exécution guidée (Vercel, Render, Railway, VPS Hostinger, MongoDB Atlas).",
   "type": "module",

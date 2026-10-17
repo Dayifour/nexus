@@ -7,10 +7,18 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { probeKillBoundary, resolveExecutable, runProcess, type RunOptions } from "../src/index.ts";
+import { spawn } from "node:child_process";
+import {
+  defaultKillBoundary,
+  probeKillBoundary,
+  resolveExecutable,
+  runProcess,
+  type RunOptions,
+} from "../src/index.ts";
 
 const ESCAPER = fileURLToPath(new URL("./fixtures/escaper.mjs", import.meta.url));
-let pidns = { usable: false } as { usable: boolean; reason?: string };
+const SUPERVISOR_PARENT = fileURLToPath(new URL("./fixtures/supervisor-parent.ts", import.meta.url));
+let pidns = { usable: false, parentDeath: false } as { usable: boolean; reason?: string; parentDeath: boolean };
 before(async () => {
   pidns = await probeKillBoundary();
   if (!pidns.usable && process.env.NEXUS_ALLOW_NO_USERNS !== "1") {
@@ -134,6 +142,30 @@ ns("PID namespace : un « démon » setsid laissé après une fin normale est tu
   const r = await run({ args: [ESCAPER, hb, "--exit-soon"], cwd: dir });
   assert.equal(r.exitCode, 0);
   assert.equal(await beating(hb), false);
+});
+
+ns("mort brutale du parent (SIGKILL de Nexus) : tout le PID namespace meurt avec lui", async (t) => {
+  if (!pidns.parentDeath) return t.skip("setpriv absent : pas de protection contre la mort du parent");
+  const dir = tmp(t);
+  const hb = join(dir, "hb");
+  const parent = spawn(process.execPath, [SUPERVISOR_PARENT, ESCAPER, hb], { stdio: "ignore" });
+  t.after(() => parent.kill("SIGKILL"));
+  assert.ok(await waitFor(() => readBeat(hb) !== null), "descendant démarré");
+  assert.equal(await beating(hb), true);
+  parent.kill("SIGKILL");
+  await new Promise((r) => parent.once("exit", r));
+  // Le descendant setsid, petit-enfant de unshare, ne doit pas survivre au parent.
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(await beating(hb), false, "le descendant a survécu à la mort du parent");
+});
+
+test("frontière par défaut selon la plateforme ; frontières hors plateforme refusées", async (t) => {
+  assert.equal(defaultKillBoundary("linux"), "pid-namespace");
+  assert.equal(defaultKillBoundary("darwin"), "process-group");
+  assert.equal(defaultKillBoundary("win32"), "process-tree");
+  if (process.platform !== "win32") {
+    await assert.rejects(run({ args: ["-v"], cwd: tmp(t), killBoundary: "process-tree" }), /Windows-only/);
+  }
 });
 
 ns("plafond de sortie : processus bavard arrêté, mémoire bornée", async (t) => {

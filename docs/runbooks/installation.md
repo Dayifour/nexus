@@ -24,7 +24,7 @@ Rien n'est installé ni authentifié automatiquement : chaque CLI s'installe et 
 pnpm install --frozen-lockfile                 # seuls les modules natifs autorisés (allowBuilds) exécutent un script
 pnpm run generate       # client Prisma + migrations embarquées
 pnpm run check          # lint, typecheck, tests (les tests d'isolation exigent bwrap et les user namespaces)
-npm start              # application en développement
+pnpm start             # application en développement
 ```
 
 Paquet Linux : `pnpm --filter @nexus/desktop run make:linux` (produit `.deb` et `.zip` dans `apps/desktop/out/make` ; le `.rpm` exige `rpmbuild`).

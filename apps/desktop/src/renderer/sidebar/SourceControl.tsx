@@ -1,6 +1,6 @@
 // Contrôle de source : fichiers modifiés (`git.status`), diff au clic, message + Commit (`git.commit`), et Push en un
 // clic avec une simple confirmation (`git.pushNow`) ; les raisons de blocage éventuelles sont affichées clairement.
-import { Check, CloudUpload, GitBranch, GitPullRequest, RefreshCw, Rocket, TriangleAlert } from "lucide-react";
+import { Check, CloudUpload, GitBranch, GitPullRequest, RefreshCw, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useT } from "../i18n/index.ts";
@@ -11,7 +11,7 @@ import { useGitStore } from "../stores/git.ts";
 import type { PushNowResult } from "../types.ts";
 import { confirmAction } from "../ui/dialog.tsx";
 import { Button, EmptyState, ErrorNotice, IconButton, Kbd, SectionTitle, Skeleton, cx } from "../ui/primitives.tsx";
-import { openDiff, openFile, openView } from "../workbench/dock.ts";
+import { openDiff, openFile } from "../workbench/dock.ts";
 
 function statusInfo(code: string): {
   letter: string;
@@ -80,14 +80,9 @@ export function SourceControl() {
     <div className="sidebar-view" aria-label={t("view.scm")}>
       <SectionTitle
         actions={
-          <>
-            <IconButton size="sm" label={t("cmd.delivery")} onClick={() => openView("delivery")}>
-              <Rocket size={13} />
-            </IconButton>
-            <IconButton size="sm" label={t("common.refresh")} onClick={() => void refresh()}>
-              <RefreshCw size={13} className={cx(status.loading && "spin")} />
-            </IconButton>
-          </>
+          <IconButton size="sm" label={t("common.refresh")} onClick={() => void refresh()}>
+            <RefreshCw size={13} className={cx(status.loading && "spin")} />
+          </IconButton>
         }
       >
         {t("view.scm")}

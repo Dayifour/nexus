@@ -60,4 +60,4 @@ limitant les dépendances (chaque dépendance doit être justifiée, figée et s
 - La CLI Prisma 7.10.0 hérite de vulnérabilités `high` (`mysql2`, `deepmerge-ts`) : outil de développement non embarqué ;
   à réévaluer à chaque montée de version.
 - `oxfmt` 0.41.0 (T-002) portait une faille critique (`tinypool`) : mis à jour en 0.72.0.
-- Le type stripping de Node ignore la vérification de types : `npm run typecheck` est obligatoire en CI.
+- Le type stripping de Node ignore la vérification de types : `pnpm run typecheck` est obligatoire en CI.

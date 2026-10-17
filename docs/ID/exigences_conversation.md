@@ -1,8 +1,8 @@
 # Inventaire exhaustif des décisions et intentions exprimées
 
-> Nexus AI — version documentaire 1.1, 10 octobre 2026. Statut : spécification, pas implémentation.
+> Nexus AI — spécification d'origine (version documentaire 1.1, 10 octobre 2026). Document de conception, conservé pour référence : l'état réel est décrit dans `docs/ARCHITECTURE.md`, `docs/USER_GUIDE.md` et `.coordination/STATUS.md` ; en cas d'écart, le code fait foi.
 
-Ce fichier restitue toutes les exigences métier identifiées dans les échanges disponibles, sans affirmer reproduire mot pour mot chaque phrase. Référence détaillée : `ID/idee.md`.
+Ce fichier restitue toutes les exigences métier identifiées dans les échanges disponibles, sans affirmer reproduire mot pour mot chaque phrase. Référence détaillée : `SOURCES_ORIGINALES/Nexus_AI_SPEC_MASTER_v1.md`.
 
 ## Vision
 - Produit principalement destiné au **codage et aux agents de programmation**, pas une plateforme IA généraliste.

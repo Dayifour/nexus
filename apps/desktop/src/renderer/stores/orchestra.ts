@@ -38,6 +38,8 @@ interface OrchestraState {
   start(input: OrchestraStartInput): Promise<string>;
   approvePlan(missionId: string): Promise<void>;
   stop(missionId: string): Promise<void>;
+  /** Reprend un orchestre arrêté ou en échec (ex. interrompu par un redémarrage de l'application). */
+  resume(missionId: string): Promise<void>;
   message(missionId: string, text: string): Promise<void>;
   loadChanges(missionId: string): Promise<void>;
   merge(missionId: string): Promise<string>;
@@ -87,6 +89,11 @@ export const useOrchestraStore = create<OrchestraState>()((set, get) => ({
   },
   async stop(missionId) {
     await call("orchestra.stop", { missionId });
+    void get().load(missionId);
+    void get().refresh();
+  },
+  async resume(missionId) {
+    await call("orchestra.resume", { missionId });
     void get().load(missionId);
     void get().refresh();
   },

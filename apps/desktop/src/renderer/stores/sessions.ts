@@ -1,12 +1,12 @@
 // Sessions d'agents (le cœur du produit) : un agent, une consigne, un mode. Liste en direct (`sessions.list`),
-// démarrage, relance, arrêt, diff et revue. Le flux d'événements de chaque session est tenu par le store des missions
+// démarrage, relance, arrêt, diff et revue. Le flux d'événements de chaque session est tenu par le store des flux
 // (`runs`), alimenté par `tasks.events` et les événements poussés `run`.
 import { create } from "zustand";
 import { call } from "../api.ts";
 import type { IpcResponse } from "@nexus/contracts";
 import type { DiffDto, Res, SessionMode, SessionSummary } from "../types.ts";
 import type { QuotaEvent } from "../lib/quota.ts";
-import { useMissionsStore } from "./missions.ts";
+import { useRunsStore } from "./runs.ts";
 import { done, failed, pending } from "./util.ts";
 
 export interface SandboxDenial {
@@ -190,7 +190,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => ({
   },
   async followUp(taskId, prompt) {
     // Position dans le fil mémorisée avant l'envoi : les événements du nouveau tour arrivent juste après.
-    const afterEntries = useMissionsStore.getState().runs[taskId]?.entries.length ?? 0;
+    const afterEntries = useRunsStore.getState().runs[taskId]?.entries.length ?? 0;
     await call("sessions.followUp", { taskId, prompt });
     set((s) => ({
       followUps: {

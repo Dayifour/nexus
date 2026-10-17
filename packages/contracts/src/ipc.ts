@@ -2,13 +2,10 @@
 // validée dans le preload ET dans le main (contrats_ipc_evenements.md). Le renderer est non fiable.
 import { z } from "zod";
 import { AbsolutePath, Id, ShortText } from "./common.ts";
-import { AgentEvent, Capability, ProbeResult, UsageSnapshot } from "./connector.ts";
-import { AgentMessage, MessageType } from "./messages.ts";
-import { MissionSummary, ProjectRelativePath, TaskSummary, TeamSummary } from "./planning.ts";
-import { Approval, PermissionMode } from "./policy.ts";
+import { AgentEvent, ProbeResult, UsageSnapshot } from "./connector.ts";
+import { ProjectRelativePath, TaskSummary } from "./planning.ts";
 import { DeploymentPlan } from "./deploy-plan.ts";
 import { OrchestraDetail, OrchestraFeedEntry, OrchestraSummary } from "./orchestra.ts";
-import { GovernanceMode } from "./tasks.ts";
 
 export const IPC_INVOKE_CHANNEL = "nexus:invoke";
 export const IPC_EVENT_CHANNEL = "nexus:event";
@@ -101,8 +98,6 @@ export const DiffDto = z.strictObject({
   ),
 });
 
-export const DiagramDto = z.strictObject({ flowchart: z.string(), sequence: z.string(), markdown: z.string() });
-
 export const RunEventDto = z.strictObject({
   globalSequence: z.number().int(),
   runId: Id,
@@ -120,25 +115,6 @@ export const UsageSummaryDto = z.strictObject({
   quotas: z.array(z.strictObject({ connectorId: z.string(), snapshot: UsageSnapshot, label: z.string() })),
 });
 
-const NewAgentDto = z.strictObject({
-  role: ShortText,
-  displayName: ShortText,
-  connectorId: z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
-  permissionMode: PermissionMode,
-  authMode: z.enum(["vendor-login", "api-key", "local-none"]),
-  capabilities: z.array(Capability).max(8),
-});
-
-const NewTaskDto = z.strictObject({
-  title: ShortText,
-  description: z.string().max(10_000),
-  allowedPaths: z.array(ProjectRelativePath).min(1).max(50),
-  acceptance: z.array(z.string().min(1).max(500)).min(1).max(20),
-  dependsOn: z.array(Id).max(50),
-  assignedAgentId: Id.optional(),
-});
-
-/** Événement poussé par le main vers le renderer (déjà expurgé ; sert à rafraîchir l'état local). */
 export const IpcPushEvent = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("domain"),
@@ -401,6 +377,10 @@ export const ipcChannels = {
         /** Session interactive ouverte : terminal de l'agent et dernier état connu. */
         terminalId: z.string().optional(),
         agentStatus: z.enum(["starting", "working", "idle", "needs_input", "done", "error"]).optional(),
+        /** Consigne initiale de la session (prompt de sa mission). */
+        prompt: z.string().optional(),
+        /** Code de la dernière erreur d'exécution, si la tâche a échoué. */
+        lastFailureCode: z.string().optional(),
       }),
     ),
   },
@@ -444,68 +424,6 @@ export const ipcChannels = {
   "settings.get": { request: Empty, response: AppSettings },
   "settings.set": { request: AppSettings, response: AppSettings },
 
-  "teams.list": { request: z.strictObject({ projectId: Id }), response: z.array(TeamSummary) },
-  "teams.create": {
-    request: z.strictObject({ projectId: Id, name: ShortText, governanceMode: GovernanceMode }),
-    response: TeamSummary,
-  },
-  "teams.addAgent": { request: z.strictObject({ teamId: Id, agent: NewAgentDto }), response: TeamSummary },
-  "teams.removeAgent": { request: z.strictObject({ teamId: Id, agentId: Id }), response: TeamSummary },
-  "teams.setGovernance": {
-    request: z.strictObject({ teamId: Id, governanceMode: GovernanceMode, supervisorAgentId: Id.optional() }),
-    response: TeamSummary,
-  },
-  "teams.setPermission": {
-    request: z.strictObject({ teamId: Id, agentId: Id, permissionMode: PermissionMode }),
-    response: TeamSummary,
-  },
-
-  "missions.list": { request: z.strictObject({ projectId: Id }), response: z.array(MissionSummary) },
-  "missions.create": {
-    request: z.strictObject({ projectId: Id, teamId: Id, title: ShortText, prompt: z.string().min(1).max(20_000) }),
-    response: MissionSummary,
-  },
-  "missions.tasks": { request: z.strictObject({ missionId: Id }), response: z.array(TaskSummary) },
-  "missions.proposePlan": {
-    request: z.strictObject({ missionId: Id, plan: z.unknown() }),
-    response: z.strictObject({
-      valid: z.boolean(),
-      needsApproval: z.boolean(),
-      fingerprint: z.string().optional(),
-      checks: z.array(z.strictObject({ rule: z.string(), ok: z.boolean(), detail: z.string().optional() })),
-      routing: z.array(
-        z.strictObject({ taskKey: z.string(), agentId: z.string().nullable(), reasons: z.array(z.string()) }),
-      ),
-    }),
-  },
-  "missions.planWithSupervisor": {
-    request: z.strictObject({ missionId: Id }),
-    response: z.strictObject({
-      valid: z.boolean(),
-      needsApproval: z.boolean(),
-      fingerprint: z.string().optional(),
-      checks: z.array(z.strictObject({ rule: z.string(), ok: z.boolean(), detail: z.string().optional() })),
-      routing: z.array(
-        z.strictObject({ taskKey: z.string(), agentId: z.string().nullable(), reasons: z.array(z.string()) }),
-      ),
-    }),
-  },
-  "missions.acceptPlan": {
-    request: z.strictObject({ missionId: Id, fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }),
-    response: z.strictObject({ taskIds: z.array(Id) }),
-  },
-  "missions.run": {
-    request: z.strictObject({ missionId: Id, maxParallel: z.number().int().min(1).max(5) }),
-    response: Ok,
-  },
-  "missions.cancel": {
-    request: z.strictObject({ missionId: Id }),
-    response: z.strictObject({ cancelledTaskIds: z.array(Id) }),
-  },
-
-  "tasks.add": { request: z.strictObject({ missionId: Id, task: NewTaskDto }), response: TaskSummary },
-  "tasks.assign": { request: z.strictObject({ taskId: Id, agentId: Id }), response: TaskSummary },
-  "tasks.start": { request: z.strictObject({ taskId: Id, resume: z.boolean() }), response: Ok },
   "tasks.cancel": { request: z.strictObject({ taskId: Id }), response: Ok },
   "tasks.review": {
     request: z.strictObject({ taskId: Id, decision: z.enum(["approve", "request_changes"]) }),
@@ -516,17 +434,6 @@ export const ipcChannels = {
     response: z.array(RunEventDto),
   },
   "tasks.diff": { request: z.strictObject({ taskId: Id }), response: DiffDto },
-
-  "messages.list": {
-    request: z.strictObject({ missionId: Id, type: MessageType.optional(), agentId: Id.optional() }),
-    response: z.array(AgentMessage),
-  },
-
-  "approvals.list": { request: z.strictObject({ projectId: Id.optional() }), response: z.array(Approval) },
-  "approvals.respond": {
-    request: z.strictObject({ approvalId: Id, decision: z.enum(["allow", "deny"]) }),
-    response: Approval,
-  },
 
   "secrets.list": { request: Empty, response: z.array(SecretMetadataDto) },
   "secrets.set": {
@@ -555,42 +462,6 @@ export const ipcChannels = {
   },
 
   "git.status": { request: z.strictObject({ projectId: Id }), response: GitStatusDto },
-  /** UC-06 : prépare le push (commits, fichiers, secrets) et crée une demande d'approbation si le plan n'est pas bloqué. */
-  "git.preparePush": {
-    request: z.strictObject({ projectId: Id, branch: z.string().max(200), remote: z.string().max(100) }),
-    response: z.strictObject({
-      approvalId: Id.nullable(),
-      summary: z.string(),
-      blocked: z.boolean(),
-      blockedReasons: z.array(z.string()),
-      fingerprint: z.string(),
-    }),
-  },
-  /** Exécute EXACTEMENT le push approuvé (l'approbation est consommée ; état revérifié). */
-  "git.push": {
-    request: z.strictObject({ approvalId: Id }),
-    response: z.strictObject({ remoteBranch: z.string(), sha: z.string(), upToDate: z.boolean() }),
-  },
-  /** UC-07 : prépare un déploiement Vercel (preview ou production, approbations distinctes). */
-  "deploy.prepare": {
-    request: z.strictObject({
-      projectId: Id,
-      environment: z.enum(["preview", "production"]),
-      team: z.string().max(100).optional(),
-    }),
-    response: z.strictObject({
-      approvalId: Id.nullable(),
-      summary: z.string(),
-      framework: z.string().nullable(),
-      compatibility: z.enum(["likely", "uncertain", "unlikely"]),
-      issues: z.array(z.strictObject({ severity: z.enum(["blocking", "warning"]), message: z.string() })),
-      cliAvailable: z.boolean(),
-    }),
-  },
-  "deploy.run": {
-    request: z.strictObject({ approvalId: Id }),
-    response: z.strictObject({ url: z.string(), environment: z.enum(["preview", "production"]) }),
-  },
   /**
    * Orchestre : un objectif, un chef d'orchestre (agent IA) et une équipe d'agents. Le chef découpe, répartit, transmet
    * le travail entre agents, relit chaque résultat et intègre. `full` : tout est autonome ; `approve-plan` : le plan
@@ -616,6 +487,8 @@ export const ipcChannels = {
   /** Valide le plan proposé par le chef (autonomie « approve-plan »). */
   "orchestra.approvePlan": { request: z.strictObject({ missionId: Id }), response: Ok },
   "orchestra.stop": { request: z.strictObject({ missionId: Id }), response: Ok },
+  /** Relance un orchestre arrêté ou interrompu (redémarrage de l'application) sur la même mission et la même copie. */
+  "orchestra.resume": { request: z.strictObject({ missionId: Id }), response: Ok },
   /** Fichiers modifiés par l'équipe (branche de l'orchestre comparée au projet). */
   "orchestra.changes": {
     request: z.strictObject({ missionId: Id }),
@@ -683,7 +556,6 @@ export const ipcChannels = {
     }),
     response: DeploymentPlan,
   },
-  "diagrams.generate": { request: z.strictObject({ projectId: Id }), response: DiagramDto },
   "usage.summary": { request: z.strictObject({ projectId: Id }), response: UsageSummaryDto },
 
   "voice.status": {

@@ -122,6 +122,8 @@ export function Explorer() {
   }, [children, expanded, inline]);
 
   const entries = rows.filter((r): r is Extract<Row, { type: "entry" }> => r.type === "entry");
+  // Identifiant DOM stable d'une ligne (aria-activedescendant) : chemin encodé, sans caractère invalide.
+  const rowId = (path: string) => `explorer-row-${encodeURIComponent(path).replace(/%/g, "_")}`;
 
   useEffect(() => {
     if (!selected) return;
@@ -368,6 +370,7 @@ export function Explorer() {
         <CM.Trigger asChild>
           <div
             role="treeitem"
+            id={rowId(entry.path)}
             aria-level={depth + 1}
             aria-selected={selected === entry.path}
             aria-expanded={isDir ? open : undefined}
@@ -462,6 +465,10 @@ export function Explorer() {
             className={cx("tree scroll-area", dropTarget === "" && "is-drop-root")}
             role="tree"
             tabIndex={0}
+            // Le focus reste sur l'arbre ; la ligne courante est annoncée par les lecteurs d'écran.
+            aria-activedescendant={
+              selected && entries.some((r) => r.entry.path === selected) ? rowId(selected) : undefined
+            }
             aria-label={t("explorer.tree")}
             data-testid="explorer-tree"
             onKeyDown={onKeyDown}

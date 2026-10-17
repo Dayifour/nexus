@@ -1,5 +1,6 @@
 // Durcissement Electron (cahier maître §7, T-003). Le renderer est non fiable.
-import { app, session, type WebContents } from "electron";
+import { app, session, shell, type WebContents } from "electron";
+import { isCatalogDocsUrl } from "../shared/agent-catalog.ts";
 
 /** Origines autorisées pour le contenu de l'application : serveur Vite en dev, fichiers empaquetés sinon. */
 export function isTrustedAppUrl(url: string, devServerUrl: string | undefined, rendererDir: string): boolean {
@@ -30,8 +31,12 @@ export function hardenApp(options: {
   app.enableSandbox();
 
   app.on("web-contents-created", (_event, contents: WebContents) => {
-    // Aucune nouvelle fenêtre : les liens externes seront proposés à l'utilisateur par une action explicite (T-017).
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // Aucune nouvelle fenêtre. Seule exception : les pages de documentation des agents (liste fermée, comparaison
+    // exacte), ouvertes dans le navigateur du système sur un clic explicite de l'utilisateur.
+    contents.setWindowOpenHandler(({ url }) => {
+      if (isCatalogDocsUrl(url)) void shell.openExternal(url).catch(() => {});
+      return { action: "deny" };
+    });
     contents.on("will-navigate", (event, url) => {
       if (!isTrustedAppUrl(url, options.devServerUrl, options.rendererDir)) event.preventDefault();
     });

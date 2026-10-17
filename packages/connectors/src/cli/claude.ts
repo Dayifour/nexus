@@ -1,6 +1,7 @@
 // Connecteur Claude Code (FR-004) — formats observés avec Claude Code 2.1.296 (ADR-001 §3.1).
-// `--print --output-format stream-json --verbose`, prompt sur stdin, identifiant de session imposé (`--session-id`)
-// pour la reprise native (`--resume`). Le formatage interne du CLI peut évoluer : tout type inconnu est ignoré et compté.
+// `--print --output-format stream-json --verbose`, prompt sur stdin, identifiant de session neuf (`--session-id`) à
+// chaque lancement ; reprise native par `--resume` avec l'identifiant rapporté par le CLI. Le formatage interne du CLI peut évoluer : tout type inconnu est ignoré et compté.
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -221,7 +222,9 @@ export class ClaudeCliConnector implements AgentConnector {
   }
 
   start(req: AgentTaskRequest, signal: AbortSignal): AsyncIterable<AgentEvent> {
-    return this.#run(req, signal, ["--session-id", req.sessionId]);
+    // Session CLI neuve à chaque lancement : `req.sessionId` regroupe les tâches (projet, agent) côté Nexus et la
+    // réutiliser ferait échouer Claude (« Session ID already in use »). La reprise passe par `resume` (identifiant natif).
+    return this.#run(req, signal, ["--session-id", randomUUID()]);
   }
 
   resume(nativeSessionId: string, req: AgentTaskRequest, signal: AbortSignal): AsyncIterable<AgentEvent> {

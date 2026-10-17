@@ -37,4 +37,9 @@ test("renderer : point d'entrée React, CSP stricte sans eval ni origine distant
   assert.match(csp, /script-src 'self'/);
   assert.doesNotMatch(csp, /unsafe-eval/);
   assert.doesNotMatch(csp, /https?:\/\/(?!localhost)/, "aucune origine distante autorisée");
+  // Production : pas même localhost (les origines du serveur de dev sont ajoutées par Vite en `serve` uniquement).
+  assert.doesNotMatch(csp, /localhost/, "CSP de production sans origine localhost");
+  assert.match(csp, /connect-src 'self';/);
+  const viteConfig = await readAppFile("vite.renderer.config.mts");
+  assert.match(viteConfig, /apply: "serve",\s*transformIndexHtml\(html\)/);
 });

@@ -8,7 +8,7 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { cpSync, existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RUNTIME_EXTERNALS } from "./vite.main.config.mts";
 
@@ -33,23 +33,56 @@ function runtimeClosure(roots: string[]): string[] {
   return [...seen].sort();
 }
 
+/** Modules de construction seulement (en-têtes C++, types) : jamais chargés à l'exécution. */
+const BUILD_ONLY = new Set(["node-addon-api"]);
+
+/**
+ * Filtre de copie de la fermeture d'exécution : on retire ce qui n'est jamais chargé par l'application empaquetée
+ * (symboles .pdb, sources C++ de node-pty, binaires d'autres plateformes, types, cartes de sources, et compilateurs de
+ * requêtes Prisma des autres bases : seul le compilateur « fast » SQLite sert, via l'adaptateur libsql).
+ */
+function keepRuntimeFile(name: string, rel: string, platform: string, arch: string): boolean {
+  const p = rel.split(sep).join("/");
+  if (p === "") return true;
+  if (/\.(pdb|map|d\.ts|d\.mts|d\.cts)$/.test(p)) return false;
+  if (name === "node-pty") {
+    if (/^(deps|src|third_party|scripts|typings|node-addon-api)(\/|$)/.test(p) || p.endsWith(".test.js")) return false;
+    if (p.startsWith("build/") && !p.startsWith("build/Release") && p !== "build") return false;
+    if (p.startsWith("build/Release/") && !/\.node$|spawn-helper$/.test(p)) return false;
+    const prebuild = /^prebuilds\/([^/]+)/.exec(p)?.[1];
+    if (prebuild && prebuild !== `${platform}-${arch}`) return false;
+  }
+  if (name === "@prisma/client" && p.startsWith("runtime/")) {
+    if (/query_compiler_small_bg\./.test(p)) return false;
+    if (/query_compiler_fast_bg\.(?!sqlite\.)/.test(p)) return false;
+  }
+  return true;
+}
+
 const config: ForgeConfig = {
   // Nom d'exécutable explicite : le nom npm « @nexus/desktop » n'est pas un nom de binaire/paquet Debian valide.
-  packagerConfig: { asar: true, executableName: "nexus-ai" },
+  // node-pty lance des binaires auxiliaires (spawn-helper sur macOS/Linux, conpty/winpty-agent sous Windows) : ils
+  // doivent exister sur le disque, donc hors de l'archive asar (le plugin AutoUnpackNatives y ajoute les *.node).
+  packagerConfig: { asar: { unpack: "**/node_modules/node-pty/**" }, executableName: "nexus-ai" },
   rebuildConfig: {},
   hooks: {
     // Le plugin Vite n'embarque pas node_modules : on copie uniquement les modules chargés à l'exécution.
-    packageAfterCopy: async (_config, buildPath) => {
+    packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
       for (const name of runtimeClosure(RUNTIME_EXTERNALS)) {
-        cpSync(join(rootNodeModules, name), join(buildPath, "node_modules", name), {
+        if (BUILD_ONLY.has(name) || name.startsWith("@types/")) continue;
+        const from = join(rootNodeModules, name);
+        cpSync(from, join(buildPath, "node_modules", name), {
           recursive: true,
           dereference: true,
+          filter: (src) => keepRuntimeFile(name, relative(from, src), platform, arch),
         });
       }
     },
   },
   makers: [
-    new MakerSquirrel({}),
+    // Squirrel dérive l'identifiant NuGet du nom npm « @nexus/desktop » : « @ » et « / » y sont invalides et font
+    // échouer l'installeur Windows. Identifiant et auteurs explicites.
+    new MakerSquirrel({ name: "nexus_ai", authors: "Dayifour", description: "Atelier local pour agents de code" }),
     new MakerZIP({}, ["darwin", "linux", "win32"]),
     new MakerDeb({
       options: {

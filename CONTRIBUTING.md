@@ -11,6 +11,7 @@ Nexus AI is currently a source-first preview. Please read the project status in 
 3. For a significant feature, security-sensitive change, public-contract change, or architectural decision, open an issue first so maintainers and contributors can agree on the approach.
 4. Do not include secrets, access tokens, private project data, or real credentials in issues, pull requests, fixtures, commits, or logs. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
+
 ## Development environment
 
 - Node.js `24.18.x` (the supported range is defined in `package.json`)

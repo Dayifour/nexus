@@ -1,6 +1,6 @@
 {
   "name": "@nexus/process-supervisor",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Exécution contrôlée des processus : binaire absolu, shell:false, PID namespace, timeout, annulation, redaction.",
   "type": "module",

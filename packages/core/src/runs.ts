@@ -2,7 +2,7 @@
 // Règles (UC-05, §11) : un événement est persisté AVANT tout signal UI ; jamais d'état `running` sans processus
 // actif vérifié ; reprise native si le connecteur la supporte, sinon contexte reconstruit et signalé comme tel.
 import { randomUUID } from "node:crypto";
-import type { AgentConnector, AgentEvent, AgentTaskRequest, PermissionMode } from "@nexus/contracts";
+import type { AgentConnector, AgentEvent, AgentTaskRequest, NewDomainEvent, PermissionMode } from "@nexus/contracts";
 import type { EventStore, Projector } from "@nexus/event-store";
 import { DomainError, domainEvent, SYSTEM, type Actor, type Clock } from "./events.ts";
 import type { MissionService } from "./missions.ts";
@@ -36,7 +36,8 @@ export const runsProjector: Projector = {
         where: { id: e.aggregateId },
         data: {
           lastSequence: ev.sequence,
-          ...(ev.kind === "started" && ev.nativeSessionId && { nativeSessionId: ev.nativeSessionId }),
+          ...((ev.kind === "started" || ev.kind === "completed") &&
+            ev.nativeSessionId && { nativeSessionId: ev.nativeSessionId }),
         },
       });
       // Quota signalé par le CLI : instantané consultable dans la vue Consommation.
@@ -81,6 +82,23 @@ export type ExecutionEnvironment = {
   mcpFor?: (taskId: string, connectorId: string) => AgentTaskRequest["mcpServers"];
 };
 
+type ActiveRun = { abort: AbortController; missionId: string };
+
+/** Délai maximal de regroupement des lignes de sortie en une seule transaction. */
+const OUTPUT_FLUSH_MS = 100;
+
+const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e)) || "erreur";
+
+/** Code d'échec (non réessayable) d'une tâche qui n'a pas pu démarrer. */
+function preparationFailureCode(e: unknown): string {
+  const code = e instanceof DomainError ? e.code : undefined;
+  if (code === "unavailable") return "connector_unavailable";
+  if (code === "not_found") return "agent_not_found";
+  if (code === "policy_denied") return "policy_denied";
+  if (code === "invalid_request") return "invalid_task";
+  return "preparation_failed";
+}
+
 export type RunOutcome = { runId: string; status: RunStatus; failureCode?: string; resumeMode: ResumeMode };
 
 export class RunService {
@@ -90,7 +108,7 @@ export class RunService {
   readonly #env: ExecutionEnvironment;
   /** Identifie ce processus : un run `running` d'une autre instance est forcément interrompu. */
   readonly runnerInstanceId = randomUUID();
-  readonly #active = new Map<string, AbortController>();
+  readonly #active = new Map<string, ActiveRun>();
 
   constructor(store: EventStore, clock: Clock, missions: MissionService, env: ExecutionEnvironment) {
     this.#store = store;
@@ -148,6 +166,10 @@ export class RunService {
   /**
    * `forceReview` : la tâche passe en revue (`waiting_review`) même en mode autonome — utilisé par le chef d'orchestre,
    * qui relit chaque résultat avant de débloquer les tâches suivantes.
+   *
+   * Une tâche qui ne peut pas démarrer (connecteur indisponible, agent introuvable, politique refusée, dossier de
+   * travail impossible…) passe en `failed` avec un code non réessayable et la raison : elle ne reste jamais `ready` ou
+   * `queued` (sinon l'ordonnanceur la relancerait en boucle).
    */
   async execute(
     taskId: string,
@@ -155,19 +177,47 @@ export class RunService {
     opts: { resume?: boolean; prompt?: string; forceReview?: boolean } = {},
   ): Promise<RunOutcome> {
     if (this.#active.has(taskId)) throw new DomainError("conflict", "Tâche déjà en cours d'exécution");
+    // Réservation immédiate : deux appels concurrents ne peuvent pas lancer la même tâche.
+    const active: ActiveRun = { abort: new AbortController(), missionId: "" };
+    this.#active.set(taskId, active);
+    try {
+      return await this.#execute(taskId, actor, opts, active);
+    } finally {
+      this.#active.delete(taskId);
+    }
+  }
+
+  async #execute(
+    taskId: string,
+    actor: Actor,
+    opts: { resume?: boolean; prompt?: string; forceReview?: boolean },
+    active: ActiveRun,
+  ): Promise<RunOutcome> {
     const task = await this.#missions.getTask(taskId);
-    if (!task.assignedAgentId) throw new DomainError("invalid_request", "Tâche non assignée");
-    const agent = await this.#store.prisma.agentProfile.findUnique({ where: { id: task.assignedAgentId } });
-    if (!agent) throw new DomainError("not_found", "Agent introuvable");
-    const connector = this.#env.connectorFor(agent.connectorId);
-    if (!connector) throw new DomainError("unavailable", `Connecteur ${agent.connectorId} indisponible`);
-    const mode = agent.permissionMode as PermissionMode;
-    const decision = evaluatePolicy("command_exec", {
-      mode,
-      sandboxAvailable: this.#env.sandboxAvailable,
-      authMode: agent.authMode as "vendor-login" | "api-key" | "local-none",
-    });
-    if (decision.effect === "deny") throw new DomainError("policy_denied", decision.rule);
+    active.missionId = task.missionId;
+    const ac = active.abort;
+    let agent: NonNullable<Awaited<ReturnType<EventStore["prisma"]["agentProfile"]["findUnique"]>>>;
+    let connector: AgentConnector;
+    let mode: PermissionMode;
+    try {
+      if (!task.assignedAgentId) throw new DomainError("invalid_request", "Tâche non assignée");
+      const found = await this.#store.prisma.agentProfile.findUnique({ where: { id: task.assignedAgentId } });
+      if (!found) throw new DomainError("not_found", "Agent introuvable");
+      agent = found;
+      const c = this.#env.connectorFor(agent.connectorId);
+      if (!c) throw new DomainError("unavailable", `Connecteur ${agent.connectorId} indisponible`);
+      connector = c;
+      mode = agent.permissionMode as PermissionMode;
+      const decision = evaluatePolicy("command_exec", {
+        mode,
+        sandboxAvailable: this.#env.sandboxAvailable,
+        authMode: agent.authMode as "vendor-login" | "api-key" | "local-none",
+      });
+      if (decision.effect === "deny") throw new DomainError("policy_denied", decision.rule);
+    } catch (e) {
+      await this.failTask(taskId, preparationFailureCode(e), errorMessage(e));
+      throw e;
+    }
 
     // Préparation : la tâche passe par `queued` puis `running` (transitions validées par le contrat).
     let status = task.status;
@@ -181,37 +231,69 @@ export class RunService {
       throw new DomainError("conflict", `Exécution impossible depuis l'état ${status}`);
     }
 
-    const mission = await this.#missions.get(task.missionId);
-    const previous = opts.resume
-      ? await this.#store.prisma.agentRun.findFirst({ where: { taskId }, orderBy: { startedAt: "desc" } })
-      : null;
-    const canNative = Boolean(
-      opts.resume && previous?.nativeSessionId && connector.resume && previous.connectorId === agent.connectorId,
-    );
-    const resumeMode: ResumeMode = !opts.resume ? "fresh" : canNative ? "native-resume" : "reconstructed";
-    const session = await this.#sessionFor(mission.projectId, agent.id);
+    // Tout échec entre `queued` et le lancement remet la tâche en `failed` (jamais bloquée en file).
+    let req: AgentTaskRequest;
+    let session: string;
+    let resumeMode: ResumeMode;
+    let canNative: boolean;
+    let previous: { nativeSessionId: string | null; connectorId: string } | null;
+    try {
+      const mission = await this.#missions.get(task.missionId);
+      previous = opts.resume
+        ? await this.#store.prisma.agentRun.findFirst({ where: { taskId }, orderBy: { startedAt: "desc" } })
+        : null;
+      canNative = Boolean(
+        opts.resume && previous?.nativeSessionId && connector.resume && previous.connectorId === agent.connectorId,
+      );
+      resumeMode = !opts.resume ? "fresh" : canNative ? "native-resume" : "reconstructed";
+      session = await this.#sessionFor(mission.projectId, agent.id);
 
-    let prompt = opts.prompt ?? buildTaskPrompt(task.title, task.description, task.acceptance, task.allowedPaths);
-    if (resumeMode === "reconstructed") prompt = `${await this.#reconstructedContext(taskId)}\n\n${prompt}`;
+      let prompt = opts.prompt ?? buildTaskPrompt(task.title, task.description, task.acceptance, task.allowedPaths);
+      if (resumeMode === "reconstructed") prompt = `${await this.#reconstructedContext(taskId)}\n\n${prompt}`;
 
-    const req: AgentTaskRequest = {
-      taskId,
-      projectId: mission.projectId,
-      sessionId: session,
-      agentProfileId: agent.id,
-      workspacePath: await this.#env.workspaceFor(taskId),
-      prompt,
-      contextRefs: [],
-      permissionsPolicyId: mode,
-      timeoutMs: this.#env.defaultTimeoutMs ?? 30 * 60_000,
-    };
-    const mcp = this.#env.mcpFor?.(taskId, agent.connectorId);
-    if (mcp?.length) req.mcpServers = mcp;
+      req = {
+        taskId,
+        projectId: mission.projectId,
+        sessionId: session,
+        agentProfileId: agent.id,
+        workspacePath: await this.#env.workspaceFor(taskId),
+        prompt,
+        contextRefs: [],
+        permissionsPolicyId: mode,
+        timeoutMs: this.#env.defaultTimeoutMs ?? 30 * 60_000,
+      };
+      const mcp = this.#env.mcpFor?.(taskId, agent.connectorId);
+      if (mcp?.length) req.mcpServers = mcp;
+    } catch (e) {
+      await this.failTask(taskId, "preparation_failed", errorMessage(e));
+      throw e;
+    }
 
     const runId = randomUUID();
     const attempt = task.attempt + 1;
-    const ac = new AbortController();
-    this.#active.set(taskId, ac);
+    let version = 1;
+    let started = false;
+    let finished = false;
+    // Sorties regroupées (≤ OUTPUT_FLUSH_MS) en une seule transaction ; tout autre événement est écrit aussitôt.
+    let pending: NewDomainEvent[] = [];
+    let writes: Promise<unknown> = Promise.resolve();
+    let writeError: unknown;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = (): Promise<unknown> => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      if (pending.length) {
+        const batch = pending;
+        pending = [];
+        writes = writes.then(() => this.#store.append(batch));
+        // Écriture impossible : le CLI est arrêté au plus vite (aucune sortie ne doit être perdue en silence).
+        writes.catch((e: unknown) => {
+          writeError ??= e;
+          ac.abort();
+        });
+      }
+      return writes;
+    };
     try {
       // Passage en `running` et création du run dans le MÊME lot atomique : jamais l'un sans l'autre.
       await this.#store.append([
@@ -236,15 +318,16 @@ export class RunService {
           { actor, clock: this.#clock },
         ),
       ]);
+      started = true;
 
       const stream = canNative
         ? connector.resume!(previous!.nativeSessionId!, req, ac.signal)
         : connector.start(req, ac.signal);
-      let version = 1;
       let terminal: AgentEvent | undefined;
       for await (const ev of stream) {
+        if (writeError) throw writeError;
         version++;
-        await this.#store.append([
+        pending.push(
           domainEvent(
             "agent_run",
             runId,
@@ -253,9 +336,12 @@ export class RunService {
             { event: ev },
             { actor: { actorType: "agent", actorId: agent.id }, clock: this.#clock },
           ),
-        ]);
+        );
+        if (ev.kind !== "output" || pending.length >= 64) await flush();
+        else timer ??= setTimeout(() => void flush(), OUTPUT_FLUSH_MS);
         if (ev.kind === "completed" || ev.kind === "failed") terminal = ev;
       }
+      await flush();
       const status: RunStatus =
         terminal?.kind === "completed"
           ? "completed"
@@ -274,6 +360,7 @@ export class RunService {
           { actor: SYSTEM, clock: this.#clock },
         ),
       ]);
+      finished = true;
 
       if (status === "completed") {
         await this.#missions.transition(
@@ -291,23 +378,75 @@ export class RunService {
         await this.#missions.transition(taskId, "failed", SYSTEM, { failureCode: failureCode ?? "cli_reported_error" });
       }
       return { runId, status, ...(failureCode && { failureCode }), resumeMode };
-    } finally {
-      this.#active.delete(taskId);
+    } catch (e) {
+      // Journal indisponible ou erreur interne : le CLI est arrêté, le run et la tâche sont clos (au mieux).
+      if (timer) clearTimeout(timer);
+      ac.abort();
+      if (started && !finished) {
+        try {
+          const v = await this.#store.currentVersion(runId);
+          await this.#store.append([
+            domainEvent(
+              "agent_run",
+              runId,
+              v + 1,
+              "run.finished",
+              { status: "failed", failureCode: "internal_error" },
+              { actor: SYSTEM, clock: this.#clock },
+            ),
+          ]);
+        } catch {
+          /* au mieux : la réparation au démarrage clora ce run */
+        }
+      }
+      await this.failTask(taskId, "internal_error", errorMessage(e)).catch(() => undefined);
+      throw e;
+    }
+  }
+
+  /**
+   * Met en échec (code non réessayable + raison) une tâche qui n'a pas pu démarrer ou dont l'exécution a été
+   * interrompue par une erreur interne. Sans effet sur une tâche terminée, en revue ou déjà annulée.
+   */
+  async failTask(taskId: string, failureCode: string, reason: string): Promise<boolean> {
+    try {
+      const status = (await this.#missions.getTask(taskId)).status;
+      const details = { failureCode, reason: reason.slice(0, 500) };
+      if (status === "queued" || status === "running" || status === "waiting_input") {
+        await this.#missions.transition(taskId, "failed", SYSTEM, details);
+      } else if (status === "ready" || status === "interrupted" || status === "failed") {
+        await this.#missions.transition(taskId, "queued", SYSTEM, { reason: "preparation" });
+        await this.#missions.transition(taskId, "failed", SYSTEM, details);
+      } else return false;
+      return true;
+    } catch {
+      return false;
     }
   }
 
   /** Annule une tâche en cours (le connecteur reçoit l'AbortSignal ; le processus est tué par sa frontière). */
   cancel(taskId: string): boolean {
-    const ac = this.#active.get(taskId);
-    if (!ac) return false;
-    ac.abort();
+    const a = this.#active.get(taskId);
+    if (!a) return false;
+    a.abort.abort();
     return true;
   }
 
-  /** Arrêt d'urgence (FR-023) : annule toutes les exécutions de cette instance. */
+  /** Annule les seules exécutions d'une mission (arrêt d'un orchestre) ; les autres missions continuent. */
+  cancelMission(missionId: string): string[] {
+    const ids: string[] = [];
+    for (const [taskId, a] of this.#active) {
+      if (a.missionId !== missionId) continue;
+      a.abort.abort();
+      ids.push(taskId);
+    }
+    return ids;
+  }
+
+  /** Arrêt d'urgence global (FR-023) : annule toutes les exécutions de cette instance. Action explicite uniquement. */
   emergencyStop(): string[] {
     const ids = [...this.#active.keys()];
-    for (const ac of this.#active.values()) ac.abort();
+    for (const a of this.#active.values()) a.abort.abort();
     return ids;
   }
 
@@ -332,7 +471,8 @@ export class RunService {
     for (const r of runs) {
       for (const e of await this.#store.loadAggregate(r.id)) {
         const ev = (e.payload as { event?: AgentEvent }).event;
-        if (ev?.kind === "output" && ev.channel === "message") outputs.push(ev.text);
+        // Messages structurés (Claude, Codex) et sortie texte des CLI génériques (canal stdout).
+        if (ev?.kind === "output" && ev.channel !== "stderr") outputs.push(ev.text);
       }
     }
     const tail = outputs.join("\n").slice(-4000);

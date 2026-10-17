@@ -1,6 +1,6 @@
 {
   "name": "@nexus/github",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Broker GitHub (T-018) : push approuvé sans force, création de PR via la CLI officielle gh.",
   "type": "module",

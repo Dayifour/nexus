@@ -29,6 +29,7 @@ import {
   stripUrlCredentials,
   type PushPlan,
   type SecretFinding,
+  unsafeConfigKeys,
 } from "@nexus/git";
 import { resolveExecutable, runProcess, type RunOptions, type RunResult } from "@nexus/process-supervisor";
 import { cleanOutput, GitHubError } from "./errors.ts";
@@ -190,6 +191,24 @@ const GIT_HARDENING = [
   "-c",
   "log.showSignature=false",
 ] as const;
+
+/** Clés de config locales qui font lancer une commande par `git push` (en plus de `unsafeConfigKeys`). */
+const PUSH_COMMAND_KEYS = [
+  /^core\.sshcommand$/,
+  /^core\.askpass$/,
+  /^credential\..*helper$/,
+  /^remote\..*\.(receivepack|uploadpack|vcs)$/,
+];
+function localCommandKeys(listZ: string): string[] {
+  const out: string[] = [];
+  const parts = listZ.split("\0");
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    if (parts[i] !== "local" && parts[i] !== "worktree") continue;
+    const key = (parts[i + 1]!.split("\n", 1)[0] ?? "").toLowerCase();
+    if (PUSH_COMMAND_KEYS.some((re) => re.test(key)) && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
 
 export function locateGh(pathEnv: string): string | null {
   return resolveExecutable("gh", pathEnv)?.path ?? null;
@@ -606,6 +625,18 @@ export class GitHubBroker {
       throw new GitHubError("state_changed", "l'état du dépôt a changé depuis l'approbation : nouveau plan requis");
     }
     if (current.blocked) throw new GitHubError("plan_blocked", "push bloqué : secret détecté ou scan incomplet");
+
+    // 2 bis. Config locale du dépôt : une commande définie par le dépôt (sshCommand, askPass, filtre…) s'exécuterait
+    // sur l'hôte pendant le push. Refusé : seule la configuration globale de l'utilisateur est honorée.
+    const cfg = await this.gitLocal(current.repo, ["config", "--list", "--show-scope", "-z"], [0, 1]);
+    const unsafe = [...new Set([...unsafeConfigKeys(cfg.stdout), ...localCommandKeys(cfg.stdout)])];
+    if (unsafe.length > 0) {
+      throw new GitHubError(
+        "plan_blocked",
+        `push refusé : la configuration git du dépôt définit une commande (${unsafe.slice(0, 10).join(", ")})`,
+        { keys: unsafe.slice(0, 50) },
+      );
+    }
 
     // 3. Push. Le commit exact approuvé est poussé (pas le nom de branche, qui a pu avancer entre-temps).
     const pushArgs = [

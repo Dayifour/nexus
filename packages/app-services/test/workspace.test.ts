@@ -141,6 +141,8 @@ async function setup(
       },
       args: [],
       promptVia: "stdin",
+      // Le faux chef respecte la lecture seule (il n'écrit rien).
+      readOnlyArgs: [],
     },
     { probeContext: { pathEnv: `${bin}:${NODE_DIR}:/usr/bin:/bin` }, baseEnv: { PATH: `${NODE_DIR}:/usr/bin:/bin` } },
   );

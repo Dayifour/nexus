@@ -224,31 +224,57 @@ export class MissionOrchestrator {
       promptFor?: (taskId: string) => Promise<string>;
       /** Chaque résultat passe en revue avant de débloquer la suite (chef d'orchestre). */
       forceReview?: boolean;
+      /** Tâche qui n'a pas pu démarrer (déjà mise en échec avec sa raison) : pour l'afficher. */
+      onTaskError?: (taskId: string, error: Error) => void;
     } = {},
   ): Promise<ScheduleDecision> {
     const running = new Map<string, Promise<unknown>>();
+    // Garde-fou : une tâche qui n'a pas pu démarrer n'est pas relancée dans ce même passage (jamais de boucle chaude).
+    const errored = new Set<string>();
+    // L'arrêt réveille la boucle aussitôt (sans attendre la fin d'une tâche en cours).
+    const stopped = new Promise<void>((resolve) =>
+      opts.signal?.addEventListener("abort", () => resolve(), { once: true }),
+    );
     for (;;) {
       if (opts.signal?.aborted) {
-        this.#runs.emergencyStop();
+        // Seules les exécutions de CETTE mission sont annulées (les autres orchestres continuent).
+        this.#runs.cancelMission(missionId);
         await Promise.allSettled(running.values());
         return { start: [], retry: [], blocked: [], deadlock: null, done: false };
       }
+      const tasks = await this.#missions.dagTasks(missionId);
       const decision = schedule({
-        tasks: await this.#missions.dagTasks(missionId),
+        tasks,
         maxParallel: opts.maxParallel ?? 2,
         budgetAvailable: opts.budgetAvailable?.() ?? true,
         isPermitted: () => ({ ok: true }),
       });
+      const statusOf = new Map(tasks.map((t) => [t.id, t.status]));
       for (const id of [...decision.retry, ...decision.start]) {
-        if (running.has(id) || this.#runs.isActive(id)) continue;
+        if (running.has(id) || errored.has(id) || this.#runs.isActive(id)) continue;
+        // Tâche interrompue (redémarrage) : reprise de la session native si possible.
+        const resume = statusOf.get(id) === "interrupted";
         const p = (opts.promptFor ? opts.promptFor(id) : Promise.resolve(undefined))
-          .then((prompt) =>
-            this.#runs.execute(id, actor, {
-              ...(prompt !== undefined && { prompt }),
-              ...(opts.forceReview && { forceReview: true }),
-            }),
+          .then(
+            (prompt) =>
+              this.#runs.execute(id, actor, {
+                ...(prompt !== undefined && { prompt }),
+                ...(opts.forceReview && { forceReview: true }),
+                ...(resume && { resume: true }),
+              }),
+            async (e: unknown) => {
+              // Consigne impossible à construire : la tâche ne doit pas rester `ready` (boucle de relance).
+              await this.#runs.failTask(id, "preparation_failed", (e as Error)?.message ?? String(e));
+              throw e;
+            },
           )
-          .catch(() => undefined)
+          .catch((e: unknown) => {
+            // `execute` a déjà mis la tâche en échec (code non réessayable + raison) : on le signale, sans boucle.
+            errored.add(id);
+            const err = e instanceof Error ? e : new Error(String(e));
+            if (opts.onTaskError) opts.onTaskError(id, err);
+            else console.warn(`[nexus] tâche ${id} non démarrée : ${err.message}`);
+          })
           .finally(() => running.delete(id));
         running.set(id, p);
       }
@@ -265,7 +291,7 @@ export class MissionOrchestrator {
         // Rien ne tourne et rien ne peut démarrer : soit revue humaine en attente, soit blocage définitif.
         return decision;
       }
-      await Promise.race(running.values());
+      await Promise.race([...running.values(), stopped]);
     }
   }
 }

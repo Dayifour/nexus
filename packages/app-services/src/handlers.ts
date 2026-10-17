@@ -9,10 +9,8 @@ import {
 } from "@nexus/contracts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createPayloadRedactor, DomainError, exportProject, importProject, OWNER } from "@nexus/core";
-import { buildArchitectureReport, scanProject, toMarkdown, toMmd } from "@nexus/diagrams";
 import { isGitError } from "@nexus/git";
 import { isGitHubError } from "@nexus/github";
-import { isVercelError } from "@nexus/deploy-vercel";
 import { sandboxUsable } from "@nexus/sandbox";
 import { describeQuota, UsageLedger } from "@nexus/usage";
 import { ProjectFiles } from "./files.ts";
@@ -42,7 +40,6 @@ async function guard<T>(fn: () => Promise<T> | T): Promise<T> {
     if (isGitError(e)) throw new ExposedError("conflict", `Git : ${e.message}`);
     // Erreurs des brokers distants : messages déjà bornés et expurgés par leurs packages.
     if (isGitHubError(e)) throw new ExposedError("policy_denied", `GitHub : ${e.message}`);
-    if (isVercelError(e)) throw new ExposedError("policy_denied", `Vercel : ${e.message}`);
     // Erreurs système courantes (fichier supprimé hors de Nexus, droits…) : message clair au lieu d'une erreur interne.
     const code = (e as NodeJS.ErrnoException | null)?.code;
     if (code === "ENOENT") throw new ExposedError("not_found", "Élément introuvable");
@@ -55,22 +52,11 @@ async function guard<T>(fn: () => Promise<T> | T): Promise<T> {
   }
 }
 
-/** Les opérations longues (exécution d'une mission/tâche) tournent en arrière-plan ; leurs effets arrivent par événements. */
-function background(p: Promise<unknown>): void {
-  p.catch(() => {
-    /* l'échec est journalisé dans les événements de la tâche ; rien à remonter ici */
-  });
-}
-
 export function createAppHandlers(
   svc: AppServices,
   appInfo: { appVersion: string; electron: string; node: string; platform: string },
 ): AppHandlers {
   const { core } = svc;
-  const requireRuns = () => {
-    if (!core.runs || !core.orchestrator) throw new ExposedError("unavailable", "Exécution indisponible");
-    return { runs: core.runs, orchestrator: core.orchestrator };
-  };
   const files = async (projectId: string) => {
     const p = await core.store.prisma.project.findUnique({ where: { id: projectId } });
     if (!p) throw new ExposedError("not_found", "Projet introuvable");
@@ -82,14 +68,6 @@ export function createAppHandlers(
     return svc.vault;
   };
   const projectOfMission = async (missionId: string) => (await core.missions.get(missionId)).projectId;
-  const planDto = (p: Awaited<ReturnType<NonNullable<typeof core.orchestrator>["proposePlan"]>>) => ({
-    valid: p.validation.valid,
-    needsApproval: p.needsApproval,
-    ...(p.fingerprint && { fingerprint: p.fingerprint }),
-    checks: p.validation.checks.map((c) => ({ rule: c.rule, ok: c.ok, ...(c.detail && { detail: c.detail }) })),
-    routing: p.routing.map((r) => ({ taskKey: r.taskKey, agentId: r.agentId, reasons: r.reasons })),
-  });
-
   const handlers: AppHandlers = {
     ...createWorkspaceHandlers(svc, (code, message) => new ExposedError(code, message), guard),
     ...createDeployHandlers(svc, (code, message) => new ExposedError(code, message), guard),
@@ -154,69 +132,6 @@ export function createAppHandlers(
         return importProject(core.store, raw);
       }),
 
-    "teams.list": (req) => guard(() => core.teams.list(req.projectId)),
-    "teams.create": (req) => guard(() => core.teams.create(req, OWNER)),
-    "teams.addAgent": (req) =>
-      guard(async () => {
-        await core.teams.addAgent(req.teamId, req.agent, OWNER);
-        return core.teams.get(req.teamId);
-      }),
-    "teams.removeAgent": (req) =>
-      guard(async () => {
-        await core.teams.removeAgent(req.teamId, req.agentId, OWNER);
-        return core.teams.get(req.teamId);
-      }),
-    "teams.setGovernance": (req) =>
-      guard(async () => {
-        await core.teams.setGovernance(req.teamId, req.governanceMode, req.supervisorAgentId, OWNER);
-        return core.teams.get(req.teamId);
-      }),
-    "teams.setPermission": (req) =>
-      guard(async () => {
-        await core.teams.setPermissionMode(req.teamId, req.agentId, req.permissionMode, OWNER);
-        return core.teams.get(req.teamId);
-      }),
-
-    "missions.list": (req) => guard(() => core.missions.list(req.projectId)),
-    "missions.create": (req) => guard(() => core.missions.create(req, OWNER)),
-    "missions.tasks": (req) => guard(() => core.missions.listTasks(req.missionId)),
-    "missions.proposePlan": (req) =>
-      guard(async () => planDto(await requireRuns().orchestrator.proposePlan(req.missionId, req.plan, OWNER))),
-    "missions.planWithSupervisor": (req) =>
-      guard(async () => {
-        const project = await core.projects.get(await projectOfMission(req.missionId));
-        return planDto(await requireRuns().orchestrator.planWithSupervisor(req.missionId, project.rootPath, OWNER));
-      }),
-    "missions.acceptPlan": (req) =>
-      guard(async () => ({
-        taskIds: await requireRuns().orchestrator.acceptPlan(req.missionId, req.fingerprint, OWNER),
-      })),
-    "missions.run": (req) =>
-      guard(() => {
-        background(requireRuns().orchestrator.runMission(req.missionId, OWNER, { maxParallel: req.maxParallel }));
-        return { ok: true as const };
-      }),
-    "missions.cancel": (req) =>
-      guard(async () => {
-        for (const t of await core.missions.listTasks(req.missionId)) core.runs?.cancel(t.taskId);
-        return { cancelledTaskIds: await core.missions.cancelMission(req.missionId, OWNER) };
-      }),
-
-    "tasks.add": (req) =>
-      guard(async () => {
-        const [id] = await core.missions.addTasks(req.missionId, [req.task], OWNER);
-        return core.missions.getTask(id!);
-      }),
-    "tasks.assign": (req) =>
-      guard(async () => {
-        await core.missions.assign(req.taskId, req.agentId, OWNER);
-        return core.missions.getTask(req.taskId);
-      }),
-    "tasks.start": (req) =>
-      guard(() => {
-        background(requireRuns().runs.execute(req.taskId, OWNER, { resume: req.resume }));
-        return { ok: true as const };
-      }),
     "tasks.cancel": (req) =>
       guard(() => {
         if (!core.runs?.cancel(req.taskId))
@@ -241,18 +156,20 @@ export function createAppHandlers(
           orderBy: { startedAt: "asc" },
           select: { id: true },
         });
-        const out: Array<{ globalSequence: number; runId: string; occurredAt: string; event: AgentEvent }> = [];
-        for (const r of runs) {
-          for (const e of await core.store.loadAggregate(r.id)) {
-            if (e.eventType !== "run.event" || e.globalSequence <= req.afterSequence) continue;
-            out.push({
-              globalSequence: e.globalSequence,
-              runId: r.id,
-              occurredAt: e.occurredAt,
-              event: (e.payload as { event: AgentEvent }).event,
-            });
-          }
-        }
+        // Filtre et limite appliqués dans la base (les 2000 derniers après la séquence demandée).
+        const events = await core.store.queryEvents({
+          aggregateIds: runs.map((r) => r.id),
+          eventType: "run.event",
+          afterGlobalSequence: req.afterSequence,
+          limit: 2000,
+          last: true,
+        });
+        const out = events.map((e) => ({
+          globalSequence: e.globalSequence,
+          runId: e.aggregateId,
+          occurredAt: e.occurredAt,
+          event: (e.payload as { event: AgentEvent }).event,
+        }));
         return out.slice(-2000);
       }),
     "tasks.diff": (req) =>
@@ -288,17 +205,6 @@ export function createAppHandlers(
         };
       }),
 
-    "messages.list": (req) =>
-      guard(() =>
-        core.bus.list(req.missionId, {
-          ...(req.type && { type: req.type }),
-          ...(req.agentId && { agentId: req.agentId }),
-        }),
-      ),
-
-    "approvals.list": (req) => guard(() => core.approvals.listPending(req.projectId)),
-    "approvals.respond": (req) => guard(() => core.approvals.respond(req.approvalId, req.decision, OWNER)),
-
     "secrets.list": () => guard(() => vault().list()),
     "secrets.set": (req) => guard(() => vault().set(req.ref, req.value, { label: req.label, purposes: req.purposes })),
     "secrets.delete": (req) =>
@@ -326,99 +232,6 @@ export function createAppHandlers(
           available: true,
           ...(s.branch && { branch: s.branch }),
           files: s.entries.slice(0, 2000).map((e) => ({ path: e.path, status: `${e.index}${e.worktree}` })),
-        };
-      }),
-
-    "git.preparePush": (req) =>
-      guard(async () => {
-        if (!svc.github) throw new ExposedError("unavailable", "git introuvable");
-        const project = await core.projects.get(req.projectId);
-        const plan = await svc.github.preparePush(project.rootPath, req.branch, req.remote);
-        let approvalId: string | null = null;
-        if (!plan.blocked) {
-          const a = await core.approvals.request(
-            { action: "git_push", projectId: req.projectId, summary: plan.summary, plan: plan.approvalPlan },
-            OWNER,
-          );
-          approvalId = a.approvalId;
-          svc.pendingPushes.set(approvalId, { repo: project.rootPath, plan });
-        }
-        return {
-          approvalId,
-          summary: plan.summary,
-          blocked: plan.blocked,
-          blockedReasons: plan.blockedReasons,
-          fingerprint: plan.fingerprint,
-        };
-      }),
-    "git.push": (req) =>
-      guard(async () => {
-        const pending = svc.pendingPushes.get(req.approvalId);
-        if (!pending || !svc.github) throw new ExposedError("not_found", "Aucun push préparé pour cette approbation");
-        try {
-          const r = await svc.github.push(pending.repo, pending.plan, req.approvalId);
-          return { remoteBranch: r.remoteBranch, sha: r.sha, upToDate: r.flag === "=" };
-        } catch (e) {
-          throw new ExposedError("policy_denied", `Push refusé : ${(e as Error).message}`.slice(0, 500));
-        } finally {
-          svc.pendingPushes.delete(req.approvalId);
-        }
-      }),
-    "deploy.prepare": (req) =>
-      guard(async () => {
-        const project = await core.projects.get(req.projectId);
-        const plan = svc.vercel.planDeployment({
-          root: project.rootPath,
-          environment: req.environment,
-          ...(req.team && { team: req.team }),
-        });
-        const d = plan.detection;
-        let approvalId: string | null = null;
-        if (d.compatibility !== "unlikely") {
-          const a = await core.approvals.request(
-            {
-              action: plan.approvalPlan.action,
-              projectId: req.projectId,
-              summary: plan.summary,
-              plan: plan.approvalPlan,
-            },
-            OWNER,
-          );
-          approvalId = a.approvalId;
-          svc.pendingDeployments.set(approvalId, plan);
-        }
-        return {
-          approvalId,
-          summary: plan.summary,
-          framework: d.framework,
-          compatibility: d.compatibility,
-          issues: d.issues.map((i) => ({ severity: i.severity, message: i.message })),
-          cliAvailable: svc.vercelCliAvailable,
-        };
-      }),
-    "deploy.run": (req) =>
-      guard(async () => {
-        const plan = svc.pendingDeployments.get(req.approvalId);
-        if (!plan) throw new ExposedError("not_found", "Aucun déploiement préparé pour cette approbation");
-        try {
-          const r = await svc.vercel.deploy(plan, req.approvalId);
-          return { url: r.url, environment: r.environment };
-        } catch (e) {
-          throw new ExposedError("policy_denied", `Déploiement refusé : ${(e as Error).message}`.slice(0, 500));
-        } finally {
-          svc.pendingDeployments.delete(req.approvalId);
-        }
-      }),
-
-    "diagrams.generate": (req) =>
-      guard(async () => {
-        const project = await core.projects.get(req.projectId);
-        const scan = scanProject({ root: project.rootPath, allowedRoots: [project.rootPath] });
-        const report = buildArchitectureReport(scan);
-        return {
-          flowchart: toMmd(report.flowchart, report.assumptions),
-          sequence: toMmd(report.sequence, report.assumptions),
-          markdown: toMarkdown(report, project.name),
         };
       }),
 
@@ -455,26 +268,31 @@ export function createAppHandlers(
     "usage.summary": (req) =>
       guard(async () => {
         const ledger = new UsageLedger();
-        const missions = await core.missions.list(req.projectId);
-        for (const m of missions) {
-          for (const t of await core.missions.listTasks(m.missionId)) {
-            const runs = await core.store.prisma.agentRun.findMany({
-              where: { taskId: t.taskId },
-              select: { id: true, connectorId: true },
+        // Trois requêtes au lieu d'une par mission, tâche et run : tâches du projet, leurs runs, événements d'usage.
+        const missions = await core.store.prisma.mission.findMany({
+          where: { projectId: req.projectId },
+          select: { id: true },
+        });
+        const tasks = await core.store.prisma.task.findMany({
+          where: { missionId: { in: missions.map((m) => m.id) } },
+          select: { id: true, assignedAgentId: true },
+        });
+        const agentOf = new Map(tasks.map((t) => [t.id, t.assignedAgentId ?? "unknown"]));
+        const runs = await core.store.prisma.agentRun.findMany({
+          where: { taskId: { in: tasks.map((t) => t.id) } },
+          select: { id: true, taskId: true, connectorId: true },
+        });
+        const runOf = new Map(runs.map((r) => [r.id, r]));
+        for (const e of await core.store.queryEvents({ aggregateIds: runs.map((r) => r.id), eventType: "run.event" })) {
+          const ev = (e.payload as { event?: AgentEvent }).event;
+          const r = runOf.get(e.aggregateId);
+          if (ev?.kind === "usage" && r)
+            ledger.record(ev, {
+              projectId: req.projectId,
+              agentId: agentOf.get(r.taskId) ?? "unknown",
+              observedAt: e.occurredAt,
+              origin: r.connectorId,
             });
-            for (const r of runs) {
-              for (const e of await core.store.loadAggregate(r.id)) {
-                const ev = (e.payload as { event?: AgentEvent }).event;
-                if (ev?.kind === "usage")
-                  ledger.record(ev, {
-                    projectId: req.projectId,
-                    agentId: t.assignedAgentId ?? "unknown",
-                    observedAt: e.occurredAt,
-                    origin: r.connectorId,
-                  });
-              }
-            }
-          }
         }
         const totals = ledger.byProject(req.projectId);
         const source =

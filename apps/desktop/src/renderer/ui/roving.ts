@@ -2,6 +2,7 @@
 // - `role="radiogroup"` / `role="tablist"` : flèches (←/→/↑/↓), Origine et Fin déplacent le focus ET la sélection ;
 // - « tabindex itinérant » : seul l'élément coché (ou le premier) est atteignable par Tab, les autres par les flèches.
 // Une seule installation globale : les composants n'ont qu'à poser les rôles et aria-checked / aria-selected.
+// Aucun MutationObserver : le tabindex d'un groupe est recalculé quand le focus y entre ou s'y déplace.
 
 const GROUPS = '[role="radiogroup"], [role="tablist"]';
 const ITEMS = '[role="radio"], [role="tab"]';
@@ -28,10 +29,14 @@ function syncGroup(group: Element): void {
   }
 }
 
+/** Groupes gérés par Radix (Tabs, RadioGroup…) : leur navigation clavier est déjà assurée, on n'y touche pas. */
+const radixManaged = (el: Element) => el.hasAttribute("data-radix-collection-item");
+
 function onKeyDown(e: KeyboardEvent): void {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
   const target = e.target as HTMLElement | null;
   const item = target?.closest?.<HTMLElement>(ITEMS);
+  if (item && radixManaged(item)) return;
   const group = item?.closest(GROUPS);
   if (!item || !group) return;
   const items = itemsOf(group);
@@ -62,35 +67,48 @@ function onKeyDown(e: KeyboardEvent): void {
   next.focus();
   // La sélection suit le focus (comportement standard des boutons radio et des onglets à activation automatique).
   next.click();
+  requestAnimationFrame(() => syncGroup(group));
 }
 
 let installed = false;
-let raf = 0;
+/** Focus donné à la souris : l'élément cliqué garde le focus (pas de redirection vers l'élément coché). */
+let pointerFocus = false;
+
+/**
+ * Tabindex itinérant posé à la demande, groupe par groupe, quand le focus y entre (et après chaque déplacement au
+ * clavier) — sans observer tout le document : aucune surveillance du DOM pendant le flux des agents.
+ */
+function onFocusIn(e: FocusEvent): void {
+  const target = e.target as HTMLElement | null;
+  const item = target?.closest?.<HTMLElement>(ITEMS);
+  const group = item?.closest(GROUPS);
+  if (!item || !group || radixManaged(item)) return;
+  syncGroup(group);
+  const from = e.relatedTarget as Node | null;
+  if (pointerFocus || (from && group.contains(from))) return;
+  // Entrée au clavier (Tab / Maj+Tab) : le focus va à l'élément coché, comme le prévoit le motif ARIA.
+  const current = itemsOf(group).find(isChecked);
+  if (current && current !== item) current.focus();
+}
+
+const onPointerDown = () => {
+  pointerFocus = true;
+  setTimeout(() => {
+    pointerFocus = false;
+  }, 0);
+};
 
 /** Installe la navigation clavier et le tabindex itinérant pour tout le document (idempotent). */
 export function installRovingFocus(): () => void {
   if (installed) return () => {};
   installed = true;
-  const syncAll = () => {
-    raf = 0;
-    for (const g of document.querySelectorAll(GROUPS)) syncGroup(g);
-  };
-  const schedule = () => {
-    if (!raf) raf = requestAnimationFrame(syncAll);
-  };
-  const observer = new MutationObserver(schedule);
-  observer.observe(document.body, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: ["aria-checked", "aria-selected", "disabled"],
-  });
   document.addEventListener("keydown", onKeyDown);
-  schedule();
+  document.addEventListener("focusin", onFocusIn);
+  document.addEventListener("pointerdown", onPointerDown, true);
   return () => {
     installed = false;
-    observer.disconnect();
     document.removeEventListener("keydown", onKeyDown);
-    if (raf) cancelAnimationFrame(raf);
+    document.removeEventListener("focusin", onFocusIn);
+    document.removeEventListener("pointerdown", onPointerDown, true);
   };
 }

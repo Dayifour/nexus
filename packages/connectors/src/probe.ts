@@ -6,7 +6,8 @@ import type { ProbeResult } from "@nexus/contracts";
 import { resolveExecutable, runProcess, type RunOptions, type RunResult } from "@nexus/process-supervisor";
 import type { CliSignature } from "./signatures.ts";
 
-export type Runner = (opts: RunOptions) => Promise<RunResult>;
+/** `ctx.taskId` : tâche Nexus du lancement (le runner applique le mode de CETTE tâche, pas celui du dossier). */
+export type Runner = (opts: RunOptions, ctx?: { taskId?: string }) => Promise<RunResult>;
 
 export type ProbeContext = {
   /** PATH fourni explicitement (celui de l'utilisateur, jamais modifié silencieusement). */

@@ -1,7 +1,8 @@
 // Sessions d'agent INTERACTIVES : la vraie interface (TUI) du CLI tourne dans un terminal PTY et l'utilisateur y tape
 // directement. En mode « Autonome en sandbox », le terminal entier tourne dans la sandbox.
-// L'état de l'agent vient de ses hooks (Claude : UserPromptSubmit, Notification, Stop…), écrits dans un fichier que
-// Nexus surveille : on ne devine jamais l'état à partir du texte affiché.
+// L'état de l'agent vient de ses hooks (Claude : UserPromptSubmit, Notification, Stop… ; Hermes : pre_llm_call,
+// pre_approval_request, on_session_end…), écrits dans un fichier que Nexus surveille : on ne devine jamais l'état à
+// partir du texte affiché.
 import {
   appendFileSync,
   closeSync,
@@ -17,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IpcPushEvent, PermissionMode } from "@nexus/contracts";
+import { hermesScope, hermesUserHasHooks, hermesUserHome } from "@nexus/connectors";
 import { SYSTEM } from "@nexus/core";
 import type { NexusCore } from "@nexus/core";
 import { sandboxUsable, type SandboxCapabilities } from "@nexus/sandbox";
@@ -171,9 +173,20 @@ export class InteractiveSessions {
     const hookFile = join(hookDir, "status");
     writeFileSync(hookFile, "");
     let settingsPath: string | undefined;
+    const extraEnv: Record<string, string> = { NEXUS_HOOK_FILE: hookFile };
     if (o.connectorId === "claude-cli") {
       settingsPath = join(hookDir, "settings.json");
       writeFileSync(settingsPath, claudeHookSettings());
+    } else if (o.connectorId === "hermes-cli") {
+      // Hooks d'état par la portée gérée de Hermes, dans le dossier des hooks (visible dans la sandbox, supprimé à la fin).
+      const userEnv = this.#d.userEnv();
+      const scope = hermesScope({
+        statusHooks: { autoAccept: !hermesUserHasHooks(hermesUserHome(this.#d.home, userEnv)) },
+        baseDir: hookDir,
+        home: this.#d.home,
+        env: userEnv,
+      });
+      if (scope?.env.HERMES_MANAGED_DIR) Object.assign(extraEnv, scope.env);
     }
     const args = interactiveArgs(o.connectorId, o.mode, {
       ...(o.prompt !== undefined && { prompt: o.prompt }),
@@ -195,13 +208,13 @@ export class InteractiveSessions {
           extraAllow: this.#d.settings.get().sandboxExtraAllow,
           extraWritable: [hookDir],
           pathEnv: this.#d.pathEnv,
-          extraEnv: { NEXUS_HOOK_FILE: hookFile },
+          extraEnv,
           onDenied: (target, reason) => this.#d.push({ type: "sandbox-denied", taskId: o.taskId, target, reason }),
         });
         command = sb;
         cleanup = sb.cleanup;
       } else {
-        command = { file: o.binary, args, env: { ...this.#d.userEnv(), NEXUS_HOOK_FILE: hookFile } };
+        command = { file: o.binary, args, env: { ...this.#d.userEnv(), ...extraEnv } };
       }
     } catch (e) {
       rmSync(hookDir, { recursive: true, force: true });
@@ -214,6 +227,10 @@ export class InteractiveSessions {
 
     // Lecture incrémentale du fichier de hooks.
     let offset = 0;
+    // Hermes : hooks demandés, mais une interface sans hooks (TUI, portée gérée de l'administrateur) reste possible ;
+    // l'activité du terminal sert d'indication jusqu'au premier hook reçu.
+    let hooksSeen = false;
+    let quiet: ReturnType<typeof setTimeout> | undefined;
     const poll = setInterval(() => {
       try {
         const size = statSync(hookFile).size;
@@ -226,7 +243,11 @@ export class InteractiveSessions {
         // Chaque changement d'état est relayé (même plusieurs entre deux lectures), sans doublons consécutifs.
         for (const line of buf.toString("utf8").split("\n")) {
           const s = line.trim() as AgentStatus;
-          if (STATUSES.includes(s) && this.#byTask.get(o.taskId)?.status !== s) this.#status(o.taskId, s);
+          if (!STATUSES.includes(s)) continue;
+          // Premier hook reçu : l'état vient désormais des hooks, plus de l'activité du terminal.
+          hooksSeen = true;
+          if (quiet) clearTimeout(quiet);
+          if (this.#byTask.get(o.taskId)?.status !== s) this.#status(o.taskId, s);
         }
       } catch {
         /* fichier supprimé à la fin de la session */
@@ -236,13 +257,13 @@ export class InteractiveSessions {
     // Agents sans hooks (Codex, Gemini, OpenCode…) : état déduit de l'activité du terminal, jamais de son texte :
     // sortie en cours → « travaille », 4 s de silence → « en attente de vous ».
     const hooks = o.connectorId === "claude-cli";
-    let quiet: ReturnType<typeof setTimeout> | undefined;
     const onActivity = hooks
       ? undefined
       : () => {
+          if (hooksSeen) return;
           if (this.#byTask.get(o.taskId)?.status !== "working") this.#status(o.taskId, "working");
           if (quiet) clearTimeout(quiet);
-          quiet = setTimeout(() => this.#byTask.has(o.taskId) && this.#status(o.taskId, "idle"), 4000);
+          quiet = setTimeout(() => this.#byTask.has(o.taskId) && !hooksSeen && this.#status(o.taskId, "idle"), 4000);
         };
 
     // Conversation conservée : la sortie du terminal est ajoutée au fichier de la session (relue plus tard).

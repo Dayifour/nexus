@@ -16,15 +16,19 @@ import {
   Orbit,
   Repeat2,
   RotateCcw,
+  TriangleAlert,
   Send,
   Sparkles,
   SquareTerminal,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LiveStatus } from "../ui/LiveStatus.tsx";
+import { useFrozenSelector, usePanelVisible } from "../workbench/usePanelVisible.ts";
 import { toast } from "sonner";
 import { useT, useTd, type TKey } from "../i18n/index.ts";
 import { errorText } from "../lib/actions.ts";
+import { toNexusError } from "../api.ts";
 import { mergeFeed, useOrchestraStore } from "../stores/orchestra.ts";
 import { AgentAvatar, agentName, familyOf, type AgentFamily } from "../ui/AgentAvatar.tsx";
 import { Badge, Button, EmptyState, ErrorNotice, Kbd, Skeleton, cx } from "../ui/primitives.tsx";
@@ -61,6 +65,17 @@ function duration(fromIso: string, to: number): string {
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return h > 0 ? `${h} h ${String(m).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
+/** Durée de l'orchestre, mise à jour chaque seconde dans ce seul composant (pas tout le panneau). */
+function OrchElapsed({ from, lastAt, running }: { from: string; lastAt?: number; running: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  return <span className="font-mono">{duration(from, running ? now : (lastAt ?? now))}</span>;
 }
 /** Verdict d'une revue : champ structuré `verdict` du main ; repli sur le texte pour les anciennes entrées. */
 /** Une revue est « acceptée » ou demande des « corrections », d'après le texte du chef. */
@@ -195,7 +210,13 @@ function Team({ detail }: { detail: OrchestraDetail }) {
 
 // --- Fil de l'orchestre ------------------------------------------------------------------------------------------------
 
-function FeedItem({ e, familyFor }: { e: OrchestraFeedEntry; familyFor(role?: string): AgentFamily }) {
+const FeedItem = memo(function FeedItem({
+  e,
+  familyFor,
+}: {
+  e: OrchestraFeedEntry;
+  familyFor(role?: string): AgentFamily;
+}) {
   const t = useT();
   const td = useTd();
   const time = new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -311,7 +332,7 @@ function FeedItem({ e, familyFor }: { e: OrchestraFeedEntry; familyFor(role?: st
         </div>
       );
   }
-}
+});
 
 function Feed({ feed, familyFor }: { feed: OrchestraFeedEntry[]; familyFor(role?: string): AgentFamily }) {
   const t = useT();
@@ -327,7 +348,9 @@ function Feed({ feed, familyFor }: { feed: OrchestraFeedEntry[]; familyFor(role?
       className="orch-feed scroll-area"
       role="log"
       aria-label={t("orch.feed")}
-      aria-live="polite"
+      // Le fil n'est pas lu en continu (illisible pendant le travail des agents) : les changements de phase sont
+      // annoncés par la région d'état du panneau.
+      aria-live="off"
       data-testid="orch-feed"
       onScroll={(e) => {
         const el = e.currentTarget;
@@ -351,6 +374,8 @@ function Changes({ missionId, canMerge }: { missionId: string; canMerge: boolean
   const loadChanges = useOrchestraStore((s) => s.loadChanges);
   const merge = useOrchestraStore((s) => s.merge);
   const [busy, setBusy] = useState(false);
+  // Intégration refusée pour conflits : message persistant avec la liste des fichiers (pas un toast éphémère).
+  const [conflict, setConflict] = useState<{ message: string; files: string[] }>();
   useEffect(() => {
     void loadChanges(missionId);
   }, [missionId, loadChanges]);
@@ -376,9 +401,24 @@ function Changes({ missionId, canMerge }: { missionId: string; canMerge: boolean
                 busy={busy}
                 onClick={() => {
                   setBusy(true);
+                  setConflict(undefined);
                   void merge(missionId)
                     .then((summary) => toast.success(summary || t("orch.merged")))
-                    .catch((e: unknown) => toast.error(errorText(e)))
+                    .catch((e: unknown) => {
+                      const err = toNexusError(e, "orchestra.merge");
+                      if (err.code !== "conflict") return toast.error(errorText(e));
+                      // « … conflits dans a.ts, b.ts… » : la liste suit les deux-points.
+                      const list = err.message
+                        .split(/:\s*/)
+                        .slice(1)
+                        .join(": ")
+                        .replace(/^(conflits dans|conflicts in)\s*/i, "");
+                      const files = list
+                        .split(/,\s*/)
+                        .map((f) => f.replace(/…$/, "").trim())
+                        .filter(Boolean);
+                      setConflict({ message: err.message, files });
+                    })
                     .finally(() => setBusy(false));
                 }}
               >
@@ -386,6 +426,24 @@ function Changes({ missionId, canMerge }: { missionId: string; canMerge: boolean
               </Button>
             )}
           </div>
+          {conflict && (
+            <div className="notice notice-error mb-3" role="alert" data-testid="orch-merge-conflict">
+              <TriangleAlert size={15} aria-hidden />
+              <div className="min-w-0">
+                <p className="notice-title">{t("orch.mergeConflictTitle")}</p>
+                <p className="notice-detail">{t("orch.mergeConflictBody")}</p>
+                {conflict.files.length > 0 ? (
+                  <ul className="notice-detail font-mono">
+                    {conflict.files.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="notice-detail whitespace-pre-wrap">{conflict.message}</p>
+                )}
+              </div>
+            </div>
+          )}
           <ul className="orch-files">
             {files.map((f) => (
               <li key={f.path}>
@@ -445,13 +503,16 @@ export function OrchestraPanel({ params, api }: PanelProps) {
   const td = useTd();
   const missionId = params.missionId ?? "";
   const res = useOrchestraStore((s) => s.details[missionId]);
-  const live = useOrchestraStore((s) => s.live[missionId] ?? EMPTY_FEED);
+  // Onglet caché : le fil en direct n'est pas suivi (aucun rendu) ; rattrapé dès que l'onglet réapparaît.
+  const visible = usePanelVisible(api);
+  const live = useOrchestraStore(
+    useFrozenSelector(visible, (s: ReturnType<typeof useOrchestraStore.getState>) => s.live[missionId] ?? EMPTY_FEED),
+  );
   const summary = useOrchestraStore((s) => s.list.data?.find((x) => x.missionId === missionId));
-  const { load, approvePlan, stop, message } = useOrchestraStore.getState();
+  const { load, approvePlan, stop, resume, message } = useOrchestraStore.getState();
   const [tab, setTab] = useState<"overview" | "changes">("overview");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string>();
-  const [now, setNow] = useState(Date.now());
   const detail = res?.data;
 
   useEffect(() => {
@@ -463,11 +524,6 @@ export function OrchestraPanel({ params, api }: PanelProps) {
     summary?.phase ??
     ([...live].reverse().find((e) => e.kind === "phase" && PHASES.has(e.text))?.text as OrchestraPhase | undefined);
   const active = phase ? ACTIVE_PHASES.has(phase) : live.length > 0;
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
 
   const goal =
     detail?.goal ?? summary?.goal ?? live.find((e) => e.kind === "plan")?.text.split("\n")[0] ?? t("orch.untitled");
@@ -478,15 +534,20 @@ export function OrchestraPanel({ params, api }: PanelProps) {
 
   const feed = useMemo(() => mergeFeed(detail?.feed ?? [], live), [detail?.feed, live]);
   const lead = detail?.members.find((m) => m.lead);
-  const familyFor = (role?: string): AgentFamily => {
-    const f = familyOf(role);
-    if (f === "lead" && lead) return familyOf(lead.connectorId);
-    if (f !== "other") return f;
-    const m = detail?.members.find((x) => x.role === role || agentName(x.connectorId) === role);
-    return m ? familyOf(m.connectorId) : "other";
-  };
+  const members = detail?.members;
+  // Stable tant que l'équipe ne change pas : les entrées mémoïsées du fil ne se re-rendent pas à chaque événement.
+  const familyFor = useCallback(
+    (role?: string): AgentFamily => {
+      const f = familyOf(role);
+      if (f === "lead" && lead) return familyOf(lead.connectorId);
+      if (f !== "other") return f;
+      const m = members?.find((x) => x.role === role || agentName(x.connectorId) === role);
+      return m ? familyOf(m.connectorId) : "other";
+    },
+    [members, lead],
+  );
   const createdAt = detail?.createdAt ?? summary?.createdAt ?? feed[0]?.at;
-  const lastAt = !active && feed.length > 0 ? new Date(feed[feed.length - 1]?.at ?? "").getTime() : now;
+  const lastAt = feed.length > 0 ? new Date(feed[feed.length - 1]?.at ?? "").getTime() : undefined;
 
   const act = async (name: string, fn: () => Promise<unknown>, ok?: string) => {
     setBusy(name);
@@ -517,6 +578,7 @@ export function OrchestraPanel({ params, api }: PanelProps) {
 
   return (
     <div className="panel-fill orch-panel" data-testid="orchestra-panel">
+      <LiveStatus message={phase ? t("a11y.orchPhase", { phase: td("orch.phase.", phase) }) : undefined} />
       <header className="orch-header">
         <div className="orch-header-icon" aria-hidden>
           <Orbit size={18} />
@@ -532,7 +594,7 @@ export function OrchestraPanel({ params, api }: PanelProps) {
                 {td("orch.phase.", phase)}
               </span>
             )}
-            {createdAt && <span className="font-mono">{duration(createdAt, lastAt)}</span>}
+            {createdAt && <OrchElapsed from={createdAt} lastAt={lastAt} running={active} />}
             {detail && (
               <span>
                 {t(`mode.${detail.mode}`)} · {t(`orch.autonomy.${detail.autonomy}`)}
@@ -555,6 +617,18 @@ export function OrchestraPanel({ params, api }: PanelProps) {
           {phase === "done" && tab !== "changes" && (
             <Button size="sm" variant="primary" icon={<GitMerge size={14} />} onClick={() => setTab("changes")}>
               {t("orch.merge")}
+            </Button>
+          )}
+          {(phase === "stopped" || phase === "failed") && (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<RotateCcw size={14} />}
+              busy={busy === "resume"}
+              data-testid="orch-resume"
+              onClick={() => void act("resume", () => resume(missionId), t("orch.resumed"))}
+            >
+              {t("orch.resume")}
             </Button>
           )}
           {active && phase && (

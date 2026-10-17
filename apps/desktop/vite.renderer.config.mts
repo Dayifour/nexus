@@ -21,9 +21,24 @@ function stripInlineReactPreamble(): Plugin {
   };
 }
 
+/**
+ * CSP de production stricte (`connect-src 'self'`, écrite dans index.html). Le serveur de développement a besoin du
+ * rechargement à chaud (HTTP + WebSocket sur localhost) : ces origines sont ajoutées UNIQUEMENT en `serve`, jamais
+ * dans le fichier empaqueté.
+ */
+function devConnectSources(): Plugin {
+  return {
+    name: "nexus:dev-csp-connect",
+    apply: "serve",
+    transformIndexHtml(html) {
+      return html.replace("connect-src 'self'", "connect-src 'self' http://localhost:* ws://localhost:*");
+    },
+  };
+}
+
 export default defineConfig({
   // Tailwind 4 : feuille de style générée au build (aucun style ni script injecté à l'exécution).
-  plugins: [react(), tailwindcss(), stripInlineReactPreamble()],
+  plugins: [react(), tailwindcss(), stripInlineReactPreamble(), devConnectSources()],
   worker: {
     // Workers Monaco émis comme fichiers distincts (même origine, `worker-src 'self'`), jamais en blob: ni data:.
     format: "es",

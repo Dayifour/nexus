@@ -1,7 +1,5 @@
-import { join } from "node:path";
 import { EventStore, type PayloadRedactor, type Projector } from "@nexus/event-store";
 import { approvalsProjector, ApprovalService } from "./approvals.ts";
-import { busProjector, MessageBus } from "./bus.ts";
 import { OWNER, SYSTEM, systemClock, type Clock } from "./events.ts";
 import { MissionService, missionsProjector } from "./missions.ts";
 import { ProjectService, projectsProjector } from "./projects.ts";
@@ -14,7 +12,6 @@ export { DomainError, domainEvent, OWNER, SYSTEM, systemClock, type Actor, type 
 export { ProjectService, projectsProjector } from "./projects.ts";
 export { TeamService, teamsProjector, type NewAgent } from "./teams.ts";
 export { MissionService, missionsProjector, type NewTask } from "./missions.ts";
-export { MessageBus, busProjector, type ArtifactSummary } from "./bus.ts";
 export { ApprovalService, approvalsProjector } from "./approvals.ts";
 export {
   RunService,
@@ -54,15 +51,12 @@ export const coreProjectors: Projector[] = [
   projectsProjector,
   teamsProjector,
   missionsProjector,
-  busProjector,
   approvalsProjector,
   runsProjector,
 ];
 
 export type NexusCoreOptions = {
   dbFile: string;
-  /** Dossier des artefacts publiés (par défaut à côté de la base). */
-  artifactDir?: string;
   clock?: Clock;
   /** Valeurs secrètes connues à expurger en plus des motifs de jetons (fournies par le coffre, T-015). */
   knownSecrets?: () => readonly string[];
@@ -76,7 +70,6 @@ export class NexusCore {
   readonly projects: ProjectService;
   readonly teams: TeamService;
   readonly missions: MissionService;
-  readonly bus: MessageBus;
   readonly approvals: ApprovalService;
   readonly runs: RunService | undefined;
   readonly orchestrator: MissionOrchestrator | undefined;
@@ -86,7 +79,6 @@ export class NexusCore {
     this.projects = new ProjectService(store, clock);
     this.teams = new TeamService(store, clock);
     this.missions = new MissionService(store, clock);
-    this.bus = new MessageBus(store, clock, opts.artifactDir ?? join(opts.dbFile, "..", "artifacts"));
     this.approvals = new ApprovalService(store, clock);
     this.runs = opts.execution ? new RunService(store, clock, this.missions, opts.execution) : undefined;
     this.orchestrator =

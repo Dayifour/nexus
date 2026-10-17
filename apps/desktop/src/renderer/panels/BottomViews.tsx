@@ -5,7 +5,7 @@ import { Bot, Eraser, ScrollText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT, useTd } from "../i18n/index.ts";
 import { useLogStore } from "../stores/log.ts";
-import { useMissionsStore, type RunEntry } from "../stores/missions.ts";
+import { useRunsStore, type RunEntry } from "../stores/runs.ts";
 import { ACTIVE_STATUSES, useSessionsStore } from "../stores/sessions.ts";
 import { EmptyState, IconButton, cx } from "../ui/primitives.tsx";
 import type { PanelProps } from "../workbench/DockHost.tsx";
@@ -46,12 +46,12 @@ export function AgentOutputPanel(_props: PanelProps) {
     [sessions],
   );
   const taskId = chosen && sessions?.some((s) => s.taskId === chosen) ? chosen : fallback;
-  const entries = useMissionsStore((s) => (taskId ? (s.runs[taskId]?.entries ?? EMPTY) : EMPTY));
-  const loadRun = useMissionsStore((s) => s.loadRun);
+  const entries = useRunsStore((s) => (taskId ? (s.runs[taskId]?.entries ?? EMPTY) : EMPTY));
+  const loadRun = useRunsStore((s) => s.loadRun);
   const scroller = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
-    if (taskId && !useMissionsStore.getState().runs[taskId]) void loadRun(taskId);
+    if (taskId && !useRunsStore.getState().runs[taskId]) void loadRun(taskId);
   }, [taskId, loadRun]);
   useEffect(() => {
     const el = scroller.current;

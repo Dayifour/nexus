@@ -1,201 +1,157 @@
 {
-  "name": "Nexus AI Context Pack",
-  "version": "1.1",
+  "name": "Nexus AI documentation",
+  "version": "1.2",
+  "updated": "2026-10-16",
   "files": [
     {
       "path": "00_START_HERE.md",
-      "size": 1993,
-      "sha256": "3aa8fb95300d55e9fbcec3c65cb3c6ea887a01c505a4aaf177ff2a129544bbe8"
+      "size": 984,
+      "sha256": "93782043eee77e81b51d1d5c509615345e3b7a35619db74d40343c58c12d9cc3"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "size": 9939,
+      "sha256": "4661ad48a8ce4100ca4c578aa737bbe5a8ccd3be9c2396318225d83f08446535"
     },
     {
       "path": "ARCHITECTURE/boilerplate_et_depots.md",
-      "size": 4576,
-      "sha256": "3d311049b6dbe7e992e22726f0587b6746740088e40ff7804e520447a2265fd0"
+      "size": 4787,
+      "sha256": "d4515d13896d8f5e043ee5adb8d5007025bed7bfc9e701fbd1b0b034442fca7a"
     },
     {
       "path": "ARCHITECTURE/contrats.md",
-      "size": 3686,
-      "sha256": "38f0082b671812d12f5081a6edbdad178fa5345f9928350b3cedb31a6bb88b95"
+      "size": 3897,
+      "sha256": "a32617b4b1ddf7ccf303e738f5fed9ae2fe13604be3b9139106e1315bd2d3913"
     },
     {
       "path": "ARCHITECTURE/contrats_ipc_evenements.md",
-      "size": 1678,
-      "sha256": "b915c561c8c279c6eb2551c15cb34de832545c1f75a2b67ae098fb54cede2faa"
+      "size": 1854,
+      "sha256": "92c1288ae629ba66195909312fe8af0fd915eea5b2d6e749337476ce998334c2"
     },
     {
       "path": "ARCHITECTURE/sequences_exemples.md",
-      "size": 1637,
-      "sha256": "792459a1744baf33204742f74864658a911bfe8a28206a091797b98c0d70cd03"
+      "size": 1813,
+      "sha256": "1056508ea681a5984d5e84664344cca1eba38ad28195ca2eee30b63ab6049162"
     },
     {
       "path": "ARCHITECTURE/systeme.md",
-      "size": 3914,
-      "sha256": "7940060162d6922941dbf2c3daf4fb6745acc46e0a1a896b888f4f1a2a8c4a11"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/architecte.md",
-      "size": 1068,
-      "sha256": "099655f4f5d9236dfe4ad9a1cbe0d5d25919b0827b7646bc66446ec529d9d8fa"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/connecteurs.md",
-      "size": 1070,
-      "sha256": "e27463d9dd671f8d26329527c8aa13fde2e75d11a8369bd840bb810a105d230f"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/core_et_memoire.md",
-      "size": 1058,
-      "sha256": "f0534c1c6077623198ea4e82c73aecc23a8c746e2507e2b37a39c5983fa97759"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/git_et_deploiement.md",
-      "size": 1046,
-      "sha256": "c1aef90f2a18a8c3610e752a13b1b98c6fdbdb9cf6e1b9508590d935e81546b5"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/interface.md",
-      "size": 1037,
-      "sha256": "04829a3f2b636ff37e2c55c8951bd0e4a0ab53957aa9dafb47b4800d5f5b5d04"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/qa.md",
-      "size": 981,
-      "sha256": "0e434f8ddd5b0422b9587089372d3a6a573269cdc51f8a272a645aff9f4029ba"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/securite.md",
-      "size": 1035,
-      "sha256": "e892a2f908aa86847574b0ce9df29b371b2b4d30221c7d50d97a58afb9541aa6"
-    },
-    {
-      "path": "CONTEXTES_AGENTS/voix_usage.md",
-      "size": 1004,
-      "sha256": "1dc86598553a5e70ecc9cc7571e0a4e3f1c49a3977f34feb8e5d8e1b4ce3a8f4"
+      "size": 4125,
+      "sha256": "d13af1af8375a040916683f0438583a32c4e20e1273b43376498ea16ea99e482"
     },
     {
       "path": "DONNEES/memoire_persistance.md",
-      "size": 2070,
-      "sha256": "62dd633880cea1755e1f56aa45219dcbed5477be244f3a2810eafe7ae2956a39"
+      "size": 2281,
+      "sha256": "d7b3c14a48ac6b9682aa1c9a33dcc9231a2cf402362091d3ee6043d32a9301c6"
     },
     {
       "path": "GOUVERNANCE/decisions_et_priorites.md",
-      "size": 2018,
-      "sha256": "ab9479060009ec605852e71be82ffa557ca514afc489fb73c299b1e72b3cc46a"
+      "size": 2229,
+      "sha256": "33b8e49dd8188ab6b0325848a52f5ca803cbe78002773f26a3e854c600285db6"
     },
     {
       "path": "GOUVERNANCE/journal_des_modifications.md",
-      "size": 538,
-      "sha256": "44b47760308f61d0cd7030b54694f25ec2ad1b7535d32c524dd27bed33ec5a13"
+      "size": 980,
+      "sha256": "f68642744540e5d7251cd2afa66f4b5316d916053e02a571adf6882c8d3778d5"
     },
     {
       "path": "GOUVERNANCE/lots_developpement.md",
-      "size": 3264,
-      "sha256": "8163daaf22e6e4f8c237b53cd7b02155e2285492f593c5d2fe6638319f440c13"
+      "size": 3475,
+      "sha256": "c5b3adea6a2ea4f2368ad3f4051670586cf0a551f9b324475163db019ce97c66"
     },
     {
       "path": "GOUVERNANCE/questions_ouvertes.md",
-      "size": 1525,
-      "sha256": "7c98b476e13949045a47410a77da5e17050fbebbf092b8a502e161446706f11f"
+      "size": 2294,
+      "sha256": "86685e7f937781bf15e1357c2719cd6636a7e2fe6259bbc6fab189bdc8f646a4"
     },
     {
       "path": "ID/exigences_conversation.md",
-      "size": 4636,
-      "sha256": "d9e66c819b33509b0bc4b929b82d8426d5f17ff49e3ac6ea417d2e3bfca2851a"
-    },
-    {
-      "path": "ID/idee.md",
-      "size": 47961,
-      "sha256": "8cafb52e857d321e8fe0398a8949b242a04cf8e090ae4908aae7f95bd99c55aa"
+      "size": 4847,
+      "sha256": "f77922b2071a6fbfd8b4b13134b94caaf71bb5b328acd0c2541654a549fcb792"
     },
     {
       "path": "INTEGRATIONS/connecteurs_et_detection.md",
-      "size": 1918,
-      "sha256": "592f469729f52afb758ea2dd91f7fa9732f893b9926c3aeb32674a66d5d96d53"
+      "size": 2094,
+      "sha256": "a6bf51caa55b40d5cb0f2cce10770346be0694159e63a3be36372133d7dfd491"
     },
     {
       "path": "INTEGRATIONS/github_git.md",
-      "size": 1270,
-      "sha256": "ef3e43995f648b0edce28b76aea2e8f6fad750f3184e180be56a3915175c79b7"
+      "size": 1481,
+      "sha256": "36b56add069d4ce2a22f092cd15095d229170630a3e914cc3c2fcdbe5f00f5ab"
     },
     {
       "path": "INTEGRATIONS/quotas_et_comptes.md",
-      "size": 837,
-      "sha256": "b642e5e180bee885ece815133ee79f5a478355b47d84b2287110b9a8765e782f"
+      "size": 1048,
+      "sha256": "e6b3324ac60db3e78ea02e964664c8084e72091950395e0e04262b90d7912f49"
     },
     {
       "path": "INTEGRATIONS/vercel_hebergement.md",
-      "size": 1331,
-      "sha256": "d5b90ea1d0e03a891e4822846d7beee9267884acc412f80de43699c1d625ea53"
+      "size": 1542,
+      "sha256": "a1fe18f536a2ce01ae2caafcfaa7ce89e7486770a980dc78ed5e4d8c69cebc49"
     },
     {
       "path": "INTEGRATIONS/voix.md",
-      "size": 1059,
-      "sha256": "483c62aa2868d3bb8bba2b21692c814be5e6e8ce6e1050384f0cbaa67880271b"
+      "size": 1270,
+      "sha256": "83c7b1135efa4c17bc39aac91e9801f233aed5b1f91f1da341e48d499b72f17c"
     },
     {
       "path": "INTERFACE/experience_utilisateur.md",
-      "size": 984,
-      "sha256": "8dbaf78de5383cc9255e6e4fc98aa05fd7c1c198c08676959ca054d4dd543bbf"
+      "size": 1195,
+      "sha256": "f601ec9dda2ead49a238172b0577b992fbc45f4354791f081d824205fc7c2f42"
     },
     {
       "path": "PRODUIT/vision_et_parcours.md",
-      "size": 8912,
-      "sha256": "2783f38226552f1cf565dcdb3157918fbec741b96738be16cedf24b386b7c65c"
-    },
-    {
-      "path": "PROMPTS/prompt_agent_executeur.md",
-      "size": 850,
-      "sha256": "030b30be84ae090a9d25aa5b4cb57d2777adddd9796f528d8f7237f0907617ef"
-    },
-    {
-      "path": "PROMPTS/prompt_agent_principal.md",
-      "size": 1405,
-      "sha256": "79127f191edce959a38360d5b79745710ba32bb71114ad8a4a00aac621731bca"
+      "size": 9123,
+      "sha256": "5fb42f9b9d8716022aee230753ffb32b0b637682b935be635291f7e0e09cbbaa"
     },
     {
       "path": "QA/exigences_non_fonctionnelles.md",
-      "size": 1282,
-      "sha256": "d1b46d05d57f83a87338d9f174b5e071d3b71e7ccabff64c48c016a949c14793"
+      "size": 1493,
+      "sha256": "e27ad20890737df1412bfc06e08fac26550f83b7de243524a32b8136cf308739"
     },
     {
       "path": "QA/scenarios_e2e.md",
-      "size": 2009,
-      "sha256": "41df90caf879dbd028438c615113fcedd2d2d2646c4df57d8e337a3c8d70ef3f"
+      "size": 2185,
+      "sha256": "b31c1e00968a0049badaeda196542530432318422c5a72fe425468d838b07865"
     },
     {
       "path": "QA/tests_acceptation.md",
-      "size": 1562,
-      "sha256": "575c79882932c544f2ecd9b3c8aedf083de6cd10bce911531b939f9e295f3148"
+      "size": 1773,
+      "sha256": "5a89b5e0bf23eadd2c93261a2ef7cb5403f72b38f9ccf762c147702721012687"
     },
     {
       "path": "README.md",
-      "size": 1041,
-      "sha256": "2908be6cbb00c38abc17d3aeb9dad6399717608b2f43bed480384f9490749312"
+      "size": 1685,
+      "sha256": "8b4ae004457d39119468252e8f1636a8b951dd8fdb52cd39ea376501c6d1844a"
+    },
+    {
+      "path": "RECHERCHE/benchmark-concurrents.md",
+      "size": 40174,
+      "sha256": "85ea5f4c42cd88737ce4cfa1d9c6b994f72be13d645db5117d2c6d09cc073161"
     },
     {
       "path": "RECHERCHE/concurrents_et_ressources.md",
-      "size": 4579,
-      "sha256": "5ed2b0c9f0cabdd50a4c30c9ca9a769c7fd0f7ceccff749829a3a332d3285b09"
+      "size": 4790,
+      "sha256": "4906a8578586b4da6e0b3525d8e7037e88ff38029981575434806d1011f23441"
     },
     {
-      "path": "ROADMAP/matrice_dependances.md",
-      "size": 949,
-      "sha256": "be70a449e5cc61690bdb5a3617437d2a2e4ee5677cf61599685ea92e99e2ea99"
+      "path": "RELEASE_NOTES.md",
+      "size": 5823,
+      "sha256": "21018b7b8bc6d479b3ac4a68969f58b30c3ea4642c026bbb0c362393861f6e6e"
     },
     {
-      "path": "ROADMAP/plan_developpement.md",
-      "size": 5227,
-      "sha256": "2bc4759e72e516e2dc022b45d0d1f798063ae2da52f0d9b587d34ed957a6346a"
+      "path": "RELEASING.md",
+      "size": 1960,
+      "sha256": "315cbb1fe068d2794cded7e2448c27ef565567231b5d32d1e139be41b4d32130"
     },
     {
       "path": "SECURITE/matrice_permissions.md",
-      "size": 1546,
-      "sha256": "664575081bd6010b9783507ef1dba2013f7557e78dc7e4c8a57e6797935851a0"
+      "size": 1722,
+      "sha256": "00a82c718158edbd9884b5ad03a04eeea30a0be4e3ac877c4f7b96377dc844b0"
     },
     {
       "path": "SECURITE/politique.md",
-      "size": 3139,
-      "sha256": "364edba7d39aed9818053258eb949499096501d0e7f88e886fc56a2116577f10"
+      "size": 3350,
+      "sha256": "2dc689b16fd1badf49cee77bec4f423c720de3f7a44ee03cc02d6f0c42acd2e5"
     },
     {
       "path": "SOURCES_ORIGINALES/Cahier_des_charges_Nexus_AI_v0_1.docx",
@@ -233,139 +189,264 @@
       "sha256": "a853511c370a40fdb98ae9613410070856b5e21c0e3988eea9b5158491a82467"
     },
     {
-      "path": "TICKETS/T-000.md",
+      "path": "USER_GUIDE.md",
+      "size": 10240,
+      "sha256": "1992c9defdd967d90cb2e4ca0dfd9eb2fa9c78fd1ea8a074e598bfa50f7ee5eb"
+    },
+    {
+      "path": "adr/001-runtime.md",
+      "size": 20556,
+      "sha256": "f0f306fbc657883065279b577285bd79a443cf1db4e5750b15dde2ec1ae0bcf3"
+    },
+    {
+      "path": "adr/002-monorepo-outillage.md",
+      "size": 4646,
+      "sha256": "1816ec6edd07fc5aec308135e50a5051fa604aa6c984060e3362a3faf8c64e80"
+    },
+    {
+      "path": "adr/003-sandbox-linux.md",
+      "size": 3404,
+      "sha256": "8b466bee7353ffa7ead3eba7d29832f55f12f8cd94bcc77277a3d51fd1fe020b"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/architecte.md",
+      "size": 1068,
+      "sha256": "099655f4f5d9236dfe4ad9a1cbe0d5d25919b0827b7646bc66446ec529d9d8fa"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/connecteurs.md",
+      "size": 1070,
+      "sha256": "e27463d9dd671f8d26329527c8aa13fde2e75d11a8369bd840bb810a105d230f"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/core_et_memoire.md",
+      "size": 1058,
+      "sha256": "f0534c1c6077623198ea4e82c73aecc23a8c746e2507e2b37a39c5983fa97759"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/git_et_deploiement.md",
+      "size": 1046,
+      "sha256": "c1aef90f2a18a8c3610e752a13b1b98c6fdbdb9cf6e1b9508590d935e81546b5"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/interface.md",
+      "size": 1037,
+      "sha256": "04829a3f2b636ff37e2c55c8951bd0e4a0ab53957aa9dafb47b4800d5f5b5d04"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/qa.md",
+      "size": 981,
+      "sha256": "0e434f8ddd5b0422b9587089372d3a6a573269cdc51f8a272a645aff9f4029ba"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/securite.md",
+      "size": 1035,
+      "sha256": "e892a2f908aa86847574b0ce9df29b371b2b4d30221c7d50d97a58afb9541aa6"
+    },
+    {
+      "path": "archive/CONTEXTES_AGENTS/voix_usage.md",
+      "size": 1004,
+      "sha256": "1dc86598553a5e70ecc9cc7571e0a4e3f1c49a3977f34feb8e5d8e1b4ce3a8f4"
+    },
+    {
+      "path": "archive/ID/idee.md",
+      "size": 47961,
+      "sha256": "8cafb52e857d321e8fe0398a8949b242a04cf8e090ae4908aae7f95bd99c55aa"
+    },
+    {
+      "path": "archive/PROMPTS/prompt_agent_executeur.md",
+      "size": 850,
+      "sha256": "030b30be84ae090a9d25aa5b4cb57d2777adddd9796f528d8f7237f0907617ef"
+    },
+    {
+      "path": "archive/PROMPTS/prompt_agent_principal.md",
+      "size": 1405,
+      "sha256": "79127f191edce959a38360d5b79745710ba32bb71114ad8a4a00aac621731bca"
+    },
+    {
+      "path": "archive/README.md",
+      "size": 1038,
+      "sha256": "55b07db62487ac898df0331f7493e9ac9d595aa9343e6559f937f7e876c355d9"
+    },
+    {
+      "path": "archive/ROADMAP/matrice_dependances.md",
+      "size": 949,
+      "sha256": "be70a449e5cc61690bdb5a3617437d2a2e4ee5677cf61599685ea92e99e2ea99"
+    },
+    {
+      "path": "archive/ROADMAP/plan_developpement.md",
+      "size": 5227,
+      "sha256": "2bc4759e72e516e2dc022b45d0d1f798063ae2da52f0d9b587d34ed957a6346a"
+    },
+    {
+      "path": "archive/TICKETS/T-000.md",
       "size": 1265,
       "sha256": "a1e19e8d5c4a2ebf80b0296045354efc0cdf668f5063756b009dcacadc2d5211"
     },
     {
-      "path": "TICKETS/T-001.md",
+      "path": "archive/TICKETS/T-001.md",
       "size": 1263,
       "sha256": "70c98a6b27aee62c7cab36fd7c5ec476d5f1ba98743347b08e442ae13cdc539d"
     },
     {
-      "path": "TICKETS/T-002.md",
+      "path": "archive/TICKETS/T-002.md",
       "size": 1255,
       "sha256": "57053b604ae756dff8137de821ef709967c2249851a7837a3381d6a3b3bdf0b8"
     },
     {
-      "path": "TICKETS/T-003.md",
+      "path": "archive/TICKETS/T-003.md",
       "size": 1267,
       "sha256": "9de08cb898ea813f0964628cf473225843522c0d360405bb5f663b7eaa1df302"
     },
     {
-      "path": "TICKETS/T-004.md",
+      "path": "archive/TICKETS/T-004.md",
       "size": 1213,
       "sha256": "701f8efe761612ec4e032ff76a9bb6116625f3a74f3731b09e2d49f3bc8b9ace"
     },
     {
-      "path": "TICKETS/T-005.md",
+      "path": "archive/TICKETS/T-005.md",
       "size": 1211,
       "sha256": "d56b0bfecf017f41e11f4fed817403d8b77f996a998e21285e2b6febca78cdbe"
     },
     {
-      "path": "TICKETS/T-006.md",
+      "path": "archive/TICKETS/T-006.md",
       "size": 1216,
       "sha256": "e1b2413e2e5def0a5838dec50f2ba6d4adf6d8de678834b8e2b4ca07fe429ecd"
     },
     {
-      "path": "TICKETS/T-007.md",
+      "path": "archive/TICKETS/T-007.md",
       "size": 1228,
       "sha256": "ec6cefbf44d443b8408ec10fea3ec99e7b5e24ccad5a39d32e1f581ba7cd3bb4"
     },
     {
-      "path": "TICKETS/T-008.md",
+      "path": "archive/TICKETS/T-008.md",
       "size": 1242,
       "sha256": "f697f353e48ce62355ded8daa5d0f8809288d479a7b875f35f4069ee0b49f3f8"
     },
     {
-      "path": "TICKETS/T-009.md",
+      "path": "archive/TICKETS/T-009.md",
       "size": 1230,
       "sha256": "18f4e19ec67724d3cc995be2d644d82c6c401a29951dea44a63fb0bbd96542aa"
     },
     {
-      "path": "TICKETS/T-010.md",
+      "path": "archive/TICKETS/T-010.md",
       "size": 1235,
       "sha256": "e408b567eab7b44046c16bef296c3029e6683daf10a79cbc50e2bb5020cdcda9"
     },
     {
-      "path": "TICKETS/T-011.md",
+      "path": "archive/TICKETS/T-011.md",
       "size": 1230,
       "sha256": "13f8b9f6f6ff4b78bc0458d86a9a41e525638e0a460c863dd9958219214dc0ec"
     },
     {
-      "path": "TICKETS/T-012.md",
+      "path": "archive/TICKETS/T-012.md",
       "size": 1208,
       "sha256": "5f9a6ae7513b9212fd4872b0cfeb9e150044389d131d65851c2e97aef00cfee1"
     },
     {
-      "path": "TICKETS/T-013.md",
+      "path": "archive/TICKETS/T-013.md",
       "size": 1217,
       "sha256": "decfd4ef599c57153a2fec628001e67b4d3dbd42cb1fa3cacafe7899ee1ae44a"
     },
     {
-      "path": "TICKETS/T-014.md",
+      "path": "archive/TICKETS/T-014.md",
       "size": 1211,
       "sha256": "f1509fedb0e8076cbb559b926b2d7eeb295da1631f9a8daf2ad27e0d3ff3bb3d"
     },
     {
-      "path": "TICKETS/T-015.md",
+      "path": "archive/TICKETS/T-015.md",
       "size": 1215,
       "sha256": "c8c6290038e5a1e5c0bc87c4e5627c43abb3fe9d07a311ba8894f286d0d179c4"
     },
     {
-      "path": "TICKETS/T-016.md",
+      "path": "archive/TICKETS/T-016.md",
       "size": 1223,
       "sha256": "3d641eb69245a248406aac8e310596d15a97731c90b06a60b88e44e38972b324"
     },
     {
-      "path": "TICKETS/T-017.md",
+      "path": "archive/TICKETS/T-017.md",
       "size": 1207,
       "sha256": "1b1d32e0f26e13062805a9ea2204dcea46ba23ac4d4df325abff1d88dfc493e2"
     },
     {
-      "path": "TICKETS/T-018.md",
+      "path": "archive/TICKETS/T-018.md",
       "size": 1213,
       "sha256": "e8c1078cd10b2af77142c56798479780f51d74f5df7536881af3d818092924ce"
     },
     {
-      "path": "TICKETS/T-019.md",
+      "path": "archive/TICKETS/T-019.md",
       "size": 1219,
       "sha256": "e68d8a0787f55c68d84e4614555dabe2013062105dcf839e41d74a9aab519069"
     },
     {
-      "path": "TICKETS/T-020.md",
+      "path": "archive/TICKETS/T-020.md",
       "size": 1217,
       "sha256": "e3606f35ea9fe56a6b1d8ea9e70d87bbd92c970dcc70da7748649c5bc67b4de0"
     },
     {
-      "path": "TICKETS/T-021.md",
+      "path": "archive/TICKETS/T-021.md",
       "size": 1209,
       "sha256": "dceaf4ee657584def440e2791c9036bdc3fe1a7443d3b57066c150cc3e01e080"
     },
     {
-      "path": "TICKETS/T-022.md",
+      "path": "archive/TICKETS/T-022.md",
       "size": 1205,
       "sha256": "15ec23ea2fdaa7eb7528fe060b6bed8242e7f52ec7a3bd3c39f0482f75243f71"
     },
     {
-      "path": "TICKETS/T-023.md",
+      "path": "archive/TICKETS/T-023.md",
       "size": 1219,
       "sha256": "b78f8f6ecdf2a2faa5a5119692fc3fd004347b41ada543c6723467772784e59f"
     },
     {
-      "path": "TICKETS/T-024.md",
+      "path": "archive/TICKETS/T-024.md",
       "size": 1209,
       "sha256": "d0cd8f82adff30defd23005e94aec06a42d0c0f8ded69fa1d459f2d7ac4cc884"
     },
     {
-      "path": "TICKETS/T-025.md",
+      "path": "archive/TICKETS/T-025.md",
       "size": 1213,
       "sha256": "be9b4ed30be8493319240a58713031c31f6dbbc60427bb827bd7f5ff39d99c56"
     },
     {
-      "path": "TICKETS/T-026.md",
+      "path": "archive/TICKETS/T-026.md",
       "size": 1234,
       "sha256": "68fe9560e1e13352e4fe32364d34acaa0815eab8fbe5e438d728db2732d3768b"
+    },
+    {
+      "path": "licences/AUDIT.md",
+      "size": 2345,
+      "sha256": "0cfb49457dbc8820a00de61f016b31c001d798e45a22e24ec910b74dec5c3961"
+    },
+    {
+      "path": "licences/THIRD_PARTY.md",
+      "size": 7512,
+      "sha256": "50d80607ee1ef01c0e78fe1510e99a80eaa1cf0e680c86895030784057500122"
+    },
+    {
+      "path": "runbooks/environment.md",
+      "size": 8271,
+      "sha256": "6f898abcca805e8c649375817bed579af8c3014c18d8f144c411da49046b9182"
+    },
+    {
+      "path": "runbooks/installation.en.md",
+      "size": 3821,
+      "sha256": "8dd910c373d4d55e68643951ca9ffcad5afb13c55185136014b038a9a63683a7"
+    },
+    {
+      "path": "runbooks/installation.md",
+      "size": 4414,
+      "sha256": "4a50c1884c96769a393501b6c246ac98e8b6f880fbd57ba6a8345f5aafa0c9b7"
+    },
+    {
+      "path": "testing/matrice-acceptation.md",
+      "size": 5195,
+      "sha256": "521bc29849ba3bf9dc47df37412cadb1686ec5ea7217116e7d676f66dc70c01c"
+    },
+    {
+      "path": "threat-model/README.md",
+      "size": 10700,
+      "sha256": "53bdb279c68a2e8a0a8e4e50d7d2c112938eec377737e4a1cf1ad3cb9083197f"
     }
   ]
 }

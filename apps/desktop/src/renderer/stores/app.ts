@@ -9,7 +9,8 @@ import { done, failed, pending, readJsonPref, readPref, writeJsonPref, writePref
 
 export type Lang = "fr" | "en";
 export type ThemePref = "dark" | "light" | "system";
-export type SidebarView = "orchestra" | "explorer" | "search" | "scm" | "agents" | "missions";
+export type SidebarView = "orchestra" | "explorer" | "search" | "scm" | "agents";
+const SIDEBAR_VIEWS = new Set<string>(["orchestra", "explorer", "search", "scm", "agents"]);
 
 interface UiPrefs {
   sidebarWidth: number;
@@ -19,6 +20,8 @@ interface UiPrefs {
 
 const DEFAULT_UI: UiPrefs = { sidebarWidth: 280, sidebarVisible: true, view: "explorer" };
 const storedUi = { ...DEFAULT_UI, ...readJsonPref<Partial<UiPrefs>>("nexus.ui") };
+// Vue retirée (ex. l'ancienne vue « missions ») ou préférence corrompue : retour à l'explorateur.
+if (!SIDEBAR_VIEWS.has(storedUi.view)) storedUi.view = DEFAULT_UI.view;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
@@ -84,7 +87,13 @@ function applyLang(lang: Lang): void {
   document.documentElement.lang = lang;
 }
 
-const initialLang: Lang = readPref("nexus.lang") === "en" ? "en" : "fr";
+/** Premier lancement : langue du système (fr* → français, sinon anglais) ; ensuite le choix enregistré. */
+function systemLang(): Lang {
+  const lang = typeof navigator === "undefined" ? "" : (navigator.language ?? "");
+  return lang.toLowerCase().startsWith("fr") ? "fr" : "en";
+}
+const storedLang = readPref("nexus.lang");
+const initialLang: Lang = storedLang === "en" || storedLang === "fr" ? storedLang : systemLang();
 const storedTheme = readPref("nexus.theme");
 const initialTheme: ThemePref = storedTheme === "light" || storedTheme === "system" ? storedTheme : "dark";
 
@@ -146,6 +155,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   async loadDiagnostics(force = false) {
     const s0 = get();
     if (!force && (s0.inventory.data || s0.inventory.loading)) return;
+    lastScan = Date.now();
     set((s) => ({ capabilities: pending(s.capabilities), inventory: pending(s.inventory) }));
     await Promise.all([
       call("app.capabilities", {}).then(
@@ -237,3 +247,24 @@ media?.addEventListener?.("change", () => {
   applyTheme(resolved);
   useAppStore.setState({ resolvedTheme: resolved });
 });
+
+/** Délai minimal entre deux détections automatiques des agents (retour sur la fenêtre). */
+const RESCAN_THROTTLE_MS = 30_000;
+let lastScan = 0;
+
+/**
+ * Agents installés pendant que Nexus tourne (ex. `npm i -g @openai/codex` dans un terminal) : la détection est relancée
+ * au retour sur la fenêtre, au plus une fois toutes les 30 s, et seulement si elle a déjà été faite.
+ */
+export function installInventoryRescan(): () => void {
+  const onFocus = () => {
+    const s = useAppStore.getState();
+    if (!s.inventory.data || s.inventory.loading) return;
+    const now = Date.now();
+    if (now - lastScan < RESCAN_THROTTLE_MS) return;
+    lastScan = now;
+    void s.loadDiagnostics(true);
+  };
+  window.addEventListener("focus", onFocus);
+  return () => window.removeEventListener("focus", onFocus);
+}

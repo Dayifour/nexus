@@ -56,26 +56,72 @@ async function paletteCommandIds(): Promise<string[]> {
 
 /** Exécute une commande depuis la palette, puis referme toute boîte ouverte. */
 async function runFromPalette(id: string): Promise<void> {
+  // Une boîte restée ouverte (commande précédente lente à s'afficher) intercepterait le clic suivant.
+  await closeDialogs();
   await page.keyboard.press(`${mod}+Shift+P`);
   const input = page.getByPlaceholder("Tapez une commande…");
   await input.waitFor();
   await input.fill(id);
   await page.locator(`[data-command="${id}"]`).click();
-  await page.waitForTimeout(250);
-  for (let i = 0; i < 3; i++) {
-    if ((await page.getByRole("dialog").count()) === 0) break;
+  await input.waitFor({ state: "hidden" });
+  await settle();
+  await closeDialogs();
+}
+
+/**
+ * La palette lance la commande dans un setTimeout(0) après sa fermeture : on laisse ce minuteur partir puis React
+ * peindre (deux images) avant de compter les boîtes ouvertes. Sans cela, une machine lente (CI) compte zéro boîte,
+ * puis la boîte apparaît et bloque la commande suivante.
+ */
+async function settle(): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())), 50),
+      ),
+  );
+}
+
+/**
+ * Referme les boîtes de dialogue ouvertes (Échap), en attendant que chacune ait réellement disparu. Une boîte qui
+ * s'affiche en retard est rattrapée (deux comptages séparés par une attente), une boîte qui ignore Échap est fermée
+ * par son bouton ; s'il en reste une, le test échoue ici en la nommant plutôt que plus loin sur un clic intercepté.
+ */
+async function closeDialogs(strict = true): Promise<void> {
+  const dialogs = page.getByRole("dialog");
+  for (let i = 0; i < 6; i++) {
+    await settle();
+    let count = await dialogs.count();
+    if (count === 0) {
+      await settle();
+      count = await dialogs.count();
+      if (count === 0) return;
+    }
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(120);
+    await page
+      .waitForFunction((n) => document.querySelectorAll('[role="dialog"]').length < n, count, { timeout: 3000 })
+      .catch(() => {});
   }
+  const close = page.locator('[role="dialog"] .modal-header button[aria-label="Fermer"]');
+  for (let i = 0; i < 3 && (await close.count()) > 0; i++)
+    await close
+      .first()
+      .click({ timeout: 3000 })
+      .catch(() => {});
+  await dialogs
+    .first()
+    .waitFor({ state: "detached", timeout: 3000 })
+    .catch(() => {});
+  const left = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="dialog"]')].map((d) => d.textContent?.slice(0, 80) ?? ""),
+  );
+  if (strict) assert.deepEqual(left, [], `boîte restée ouverte malgré Échap : ${left.join(" | ")}`);
 }
 
 // Un test qui échoue en laissant une boîte de dialogue ouverte ne doit pas faire échouer tous les suivants.
 beforeEach(async () => {
   if (!page) return;
-  for (let i = 0; i < 3 && (await page.getByRole("dialog").count()) > 0; i++) {
-    await page.keyboard.press("Escape");
-    await page.waitForTimeout(150);
-  }
+  await closeDialogs(false);
 });
 
 /** Commandes à effets externes (boîtes natives, fermeture du projet, langue) : non exécutées en boucle. */
@@ -83,7 +129,8 @@ const SKIP_COMMANDS = new Set(["openFolder", "importArchive", "exportProject", "
 
 before(async () => {
   app = await electron.launch({
-    args: [appDir],
+    // Interface en français (libellés vérifiés ci-dessous), quelle que soit la langue du système du runner.
+    args: [appDir, "--lang=fr"],
     cwd: appDir,
     // NEXUS_E2E_PATH : PATH de l'application (ex. « /usr/bin:/bin » pour reproduire un runner CI sans agent installé).
     env: {
@@ -241,6 +288,20 @@ test("éditeur Monaco : aperçu en italique, modification, Ctrl+S enregistre sur
     return el && !el.classList.contains("is-preview") && el.classList.contains("is-dirty");
   });
   await shot("04-editeur-modifie");
+  // Fermer le projet avec un fichier modifié : question (Enregistrer / Ne pas enregistrer / Annuler) ; Annuler garde
+  // le projet ouvert et la modification intacte.
+  await page.keyboard.press(`${mod}+Shift+P`);
+  const palette = page.getByPlaceholder("Tapez une commande…");
+  await palette.fill("closeProject");
+  await page.locator('[data-command="closeProject"]').click();
+  const unsaved = page.getByRole("dialog", { name: "Enregistrer les modifications de « index.ts » ?" });
+  await unsaved.waitFor();
+  await unsaved.getByRole("button", { name: "Ne pas enregistrer" }).waitFor();
+  await unsaved.getByRole("button", { name: "Annuler" }).click();
+  await unsaved.waitFor({ state: "hidden" });
+  await page.getByTestId("workbench-dock").waitFor();
+  assert.match((await tab.getAttribute("class")) ?? "", /is-dirty/);
+  await editor.locator(".view-lines").click();
   await page.keyboard.press(`${mod}+s`);
   await page.waitForFunction(() => {
     const el = [...document.querySelectorAll(".tab-inner")].find((n) => n.textContent?.includes("index.ts"));
@@ -263,17 +324,23 @@ test("terminal : Ctrl+` ouvre un terminal réel (ou un état indisponible propre
   const unavailable = page.getByTestId("terminal-unavailable");
   const xterm = panel.locator(".xterm");
   await xterm.waitFor();
-  // Laisse le temps à terminal.create de répondre.
-  await page.waitForTimeout(1500);
+  // terminal.create a répondu : PTY en cours (data-status) ou état indisponible propre.
+  const running = panel.locator('[data-testid="terminal-pane"][data-status="running"]');
+  await running.or(unavailable).first().waitFor({ timeout: 15_000 });
   if (await unavailable.isVisible()) {
     await unavailable.getByText("Terminal pas encore disponible").waitFor();
   } else {
+    // Le shell exécute réellement la saisie : la commande crée un fichier vérifié sur le disque.
+    const marker = join(dataDir, "terminal-e2e-marker");
     await panel.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.type("echo nexus-e2e-$((40+2))");
+    await page.keyboard.type(`echo nexus-e2e-$((40+2)) > '${marker}'`);
     await page.keyboard.press("Enter");
-    // Rendu DOM (repli sans WebGL) : la sortie est lisible dans le DOM.
-    const rows = panel.locator(".xterm-rows");
-    if ((await rows.count()) > 0) await rows.getByText("nexus-e2e-42").first().waitFor({ timeout: 15_000 });
+    const deadline = Date.now() + 15_000;
+    while (!existsSync(marker) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(existsSync(marker), "la commande tapée dans le terminal s'est exécutée");
+    for (let i = 0; i < 50 && readFileSync(marker, "utf8").trim() === ""; i++)
+      await new Promise((r) => setTimeout(r, 100));
+    assert.equal(readFileSync(marker, "utf8").trim(), "nexus-e2e-42");
   }
   await shot("05-terminal");
   await page.keyboard.press(`${mod}+Backquote`);
@@ -410,9 +477,16 @@ test("nouvelle session : agent, consigne et trois grandes cartes de mode", async
   assert.equal(await supervised.getAttribute("aria-checked"), "true");
 
   await dialog.getByRole("textbox", { name: "Consigne" }).fill("Ajoute un test pour la fonction add.");
-  // Sans agent détecté, l'identifiant du connecteur se saisit à la main.
-  const connector = dialog.getByLabel("Identifiant du connecteur");
-  if (await connector.isVisible().catch(() => false)) await connector.fill("claude-code");
+  // Sans agent détecté : accueil d'installation (commandes officielles, Rescanner) ; un connecteur personnalisé se
+  // saisit seulement dans « Autre… ».
+  const other = dialog.getByText("Autre…", { exact: true });
+  if (await other.isVisible().catch(() => false)) {
+    const setup = dialog.getByTestId("agent-setup");
+    await setup.getByText("npm install -g @openai/codex").waitFor();
+    await setup.getByRole("button", { name: "Rescanner" }).waitFor();
+    await other.click();
+    await dialog.getByLabel("Identifiant du connecteur").fill("claude-code");
+  }
   await shot("07-nouvelle-session");
   // Le bouton de lancement est prêt ; on ne lance PAS de vraie session (elle consommerait un agent réel).
   const start = dialog.getByRole("button", { name: "Lancer la session" });
@@ -587,58 +661,17 @@ test("orchestre en échec : bandeau des erreurs, réattribution mise en forme", 
   await shot("20-orchestre-echec");
 });
 
-test("tâche → vue d'activité : attente des dépendances, flux en direct, séparateur de relance", async () => {
-  // Mission et tâches créées par les vrais canaux IPC (aucun agent lancé).
-  const ids = await page.evaluate(async () => {
-    const nexus = (
-      window as unknown as {
-        nexus: { invoke(c: string, p: unknown): Promise<{ ok: boolean; data?: unknown; error?: unknown }> };
-      }
-    ).nexus;
-    const key = Object.keys(localStorage).find((k) => k.startsWith("nexus.layout.")) ?? "";
-    const projectId = key.slice("nexus.layout.".length);
-    const must = async <T>(c: string, p: unknown) => {
-      const r = await nexus.invoke(c, p);
-      if (!r.ok) throw new Error(`${c}: ${JSON.stringify(r.error)}`);
-      return r.data as T;
-    };
-    const team = await must<{ teamId: string }>("teams.create", { projectId, name: "E2E", governanceMode: "MANUAL" });
-    const mission = await must<{ missionId: string }>("missions.create", {
-      projectId,
-      teamId: team.teamId,
-      title: "Mission E2E activité",
-      prompt: "Vérifier la vue d'activité",
-    });
-    const base = { description: "", allowedPaths: ["src"], acceptance: ["ok"] };
-    const first = await must<{ taskId: string }>("tasks.add", {
-      missionId: mission.missionId,
-      task: { ...base, title: "Préparer l'API", dependsOn: [] },
-    });
-    const second = await must<{ taskId: string }>("tasks.add", {
-      missionId: mission.missionId,
-      task: { ...base, title: "Écrire les tests", dependsOn: [first.taskId] },
-    });
-    return { missionId: mission.missionId, first: first.taskId, second: second.taskId };
-  });
-  await page
-    .getByRole("navigation", { name: "Barre d'activité" })
-    .getByRole("button", { name: "Missions avancées" })
-    .click();
-  await page
-    .getByTestId("sidebar")
-    .getByRole("button", { name: /Mission E2E activité/ })
-    .click();
-  const tasks = page.getByTestId("mission-tasks");
-  await tasks.getByRole("button", { name: /Écrire les tests/ }).click();
-  const activity = page.locator("[data-testid=session-panel]:visible");
-  await activity.getByTestId("activity-waiting").getByText("En attente de : Préparer l'API").waitFor();
-  await page.locator(".tab-inner", { hasText: "Mission E2E activité" }).click();
-  await tasks.getByRole("button", { name: /^Préparer l'API/ }).click();
-  await page
-    .locator("[data-testid=session-panel]:visible")
-    .getByTestId("activity-waiting")
-    .getByText(/Prête/)
-    .waitFor();
+test("activité d'une tâche : ouverture par notification, flux en direct, séparateur de relance", async () => {
+  // Aucun agent requis : la tâche est ouverte comme depuis une notification, ses exécutions sont injectées par le main.
+  const taskId = "3c9d2e1f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+  await app.evaluate(
+    ({ BrowserWindow }, { taskId }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send("nexus:event", { type: "navigate", taskId });
+    },
+    { taskId },
+  );
+  const view = page.locator("[data-testid=session-panel]:visible");
+  await view.waitFor();
   // Deux exécutions (relance) injectées depuis le main.
   await app.evaluate(
     ({ BrowserWindow }, { taskId }) => {
@@ -654,9 +687,8 @@ test("tâche → vue d'activité : attente des dépendances, flux en direct, sé
       send(runB, { kind: "started", sequence: 1 });
       send(runB, { kind: "output", sequence: 2, channel: "message", text: "Nouvelle tentative en cours." });
     },
-    { taskId: ids.first },
+    { taskId },
   );
-  const view = page.locator("[data-testid=session-panel]:visible");
   await view.getByText("Je lis le dépôt.").waitFor();
   await view.getByText("Relance 1").waitFor();
   await view.getByText("Nouvelle tentative en cours.").waitFor();
@@ -721,33 +753,25 @@ test("réglages : thème clair puis sombre, langue EN puis FR", async () => {
   await page.getByRole("navigation", { name: "Barre d'activité" }).waitFor();
 });
 
-test("vues avancées (missions, équipes, approbations, consommation, publication) : rendu sans plantage", async () => {
-  await page
-    .getByRole("navigation", { name: "Barre d'activité" })
-    .getByRole("button", { name: "Missions avancées" })
-    .click();
-  await page.getByTestId("sidebar").getByText("Missions", { exact: true }).waitFor();
-  const views: Array<[string, string]> = [
-    ["Gérer les équipes", "Équipes"],
-    ["Ouvrir les approbations", "Approbations"],
-    ["Consommation des agents", "Consommation"],
-    ["Publier (push vérifié, Vercel)…", "Publication"],
-  ];
-  for (const [command, heading] of views) {
+test("consommation et déploiement : accessibles depuis la barre d'activité, plus d'anciennes vues", async () => {
+  const bar = page.getByRole("navigation", { name: "Barre d'activité" });
+  assert.equal(await bar.getByRole("button", { name: "Missions avancées" }).count(), 0);
+  await bar.getByRole("button", { name: "Consommation", exact: true }).click();
+  await page.getByRole("heading", { level: 2, name: "Consommation", exact: true }).waitFor({ timeout: 15_000 });
+  await bar.getByRole("button", { name: "Déploiement", exact: true }).click();
+  await page.locator(".tab-inner", { hasText: "Déploiement" }).first().waitFor({ timeout: 15_000 });
+  // Anciennes vues retirées (missions, équipes, approbations, publication Vercel) et plus de panneau Architecture.
+  for (const legacy of ["Missions", "Équipes", "Approbations", "Publier", "Architecture"]) {
     await page.keyboard.press(`${mod}+Shift+P`);
-    const input = page.getByPlaceholder("Tapez une commande…");
-    await input.fill(command);
-    await page.getByRole("option", { name: command }).click();
-    await page.getByRole("heading", { level: 2, name: heading, exact: true }).waitFor({ timeout: 15_000 });
+    await page.getByPlaceholder("Tapez une commande…").fill(legacy);
+    await page.getByText("Aucune commande").or(page.getByRole("listbox")).first().waitFor();
+    assert.equal(
+      await page.getByRole("option", { name: new RegExp(legacy) }).count(),
+      0,
+      `commande « ${legacy} » retirée`,
+    );
+    await page.keyboard.press("Escape");
   }
-  await page.getByRole("heading", { level: 2, name: "Publication" }).waitFor();
-  await shot("13-publication");
-  // Plus de panneau Architecture ni de diagramme Mermaid : ni commande, ni lien, ni rendu.
-  await page.keyboard.press(`${mod}+Shift+P`);
-  await page.getByPlaceholder("Tapez une commande…").fill("Architecture");
-  await page.getByText("Aucune commande").or(page.getByRole("listbox")).first().waitFor();
-  assert.equal(await page.getByRole("option", { name: /Architecture/ }).count(), 0);
-  await page.keyboard.press("Escape");
   assert.equal(
     await page
       .getByTestId("sidebar")
@@ -970,7 +994,8 @@ test("ancien onglet Architecture dans une disposition sauvegardée : notificatio
 });
 
 test("disposition sauvegardée par projet, aucun secret en stockage local", async () => {
-  await page.waitForTimeout(600);
+  // Enregistrement différé de la disposition : on attend qu'elle soit écrite plutôt qu'un délai fixe.
+  await page.waitForFunction(() => Object.keys(localStorage).some((k) => k.startsWith("nexus.layout.")));
   const storage = await page.evaluate(() => {
     const out: Record<string, string> = {};
     for (let i = 0; i < localStorage.length; i++) {

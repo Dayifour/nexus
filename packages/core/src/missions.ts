@@ -156,15 +156,6 @@ export class MissionService {
     };
   }
 
-  async list(projectId: string): Promise<MissionSummary[]> {
-    const rows = await this.#store.prisma.mission.findMany({
-      where: { projectId },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    return Promise.all(rows.map((r) => this.get(r.id)));
-  }
-
   async setStatus(missionId: string, to: MissionStatus, actor: Actor, reason?: string): Promise<void> {
     const m = await this.#store.prisma.mission.findUnique({ where: { id: missionId } });
     if (!m) throw new DomainError("not_found", "Mission introuvable");
@@ -282,20 +273,6 @@ export class MissionService {
       { from, to, ...details },
       { actor, clock: this.#clock },
     );
-  }
-
-  /** Arrêt d'urgence logique (FR-023) : toutes les tâches non terminales de la mission passent à `cancelled`. */
-  async cancelMission(missionId: string, actor: Actor, reason = "emergency_stop"): Promise<string[]> {
-    const tasks = await this.listTasks(missionId);
-    const cancelled: string[] = [];
-    for (const t of tasks) {
-      if (canTransition(t.status, "cancelled")) {
-        await this.transition(t.taskId, "cancelled", actor, { reason });
-        cancelled.push(t.taskId);
-      }
-    }
-    await this.setStatus(missionId, "cancelled", actor, reason);
-    return cancelled;
   }
 
   async #row(taskId: string): Promise<TaskRow> {

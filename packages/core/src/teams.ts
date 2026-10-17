@@ -118,40 +118,6 @@ export class TeamService {
     return agentId;
   }
 
-  async removeAgent(teamId: string, agentId: string, actor: Actor): Promise<void> {
-    const v = await this.#version(teamId);
-    const busy = await this.#store.prisma.task.count({
-      where: { assignedAgentId: agentId, status: { in: ["queued", "running", "waiting_input"] } },
-    });
-    if (busy > 0) throw new DomainError("conflict", "Agent occupé : annuler ou terminer ses tâches d'abord");
-    await this.#store.append([
-      domainEvent("team", teamId, v + 1, "team.agent_removed", { agentId }, { actor, clock: this.#clock }),
-    ]);
-  }
-
-  async setPermissionMode(
-    teamId: string,
-    agentId: string,
-    permissionMode: PermissionMode,
-    actor: Actor,
-  ): Promise<void> {
-    if (actor.actorType !== "user")
-      throw new DomainError("policy_denied", "Seul l'utilisateur modifie les permissions");
-    const agent = await this.#store.prisma.agentProfile.findUnique({ where: { id: agentId } });
-    if (!agent || agent.teamId !== teamId) throw new DomainError("not_found", "Agent introuvable dans cette équipe");
-    const v = await this.#version(teamId);
-    await this.#store.append([
-      domainEvent(
-        "team",
-        teamId,
-        v + 1,
-        "team.agent_permission_changed",
-        { agentId, permissionMode },
-        { actor, clock: this.#clock },
-      ),
-    ]);
-  }
-
   /**
    * Changement de gouvernance. Les tâches actives de l'équipe doivent être en pause (aucune en `running`/`queued`)
    * pour que l'instantané soit cohérent ; le superviseur IA doit être membre de l'équipe.
@@ -213,14 +179,5 @@ export class TeamService {
         authMode: m.authMode as AuthMode,
       })),
     };
-  }
-
-  async list(projectId: string): Promise<TeamSummary[]> {
-    const rows = await this.#store.prisma.team.findMany({
-      where: { projectId },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    return Promise.all(rows.map((r) => this.get(r.id)));
   }
 }

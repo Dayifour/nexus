@@ -1,7 +1,8 @@
 // Bus de l'équipe (Orchestre) : les agents se parlent pendant qu'ils travaillent.
 // Chaque agent reçoit un serveur MCP « nexus » (script autonome, protocole MCP sur stdio) qui relaie ses appels vers
-// ce bus par une socket Unix privée, avec un jeton propre à sa tâche. Outils : état de l'équipe, message à un
-// coéquipier ou à tous, lecture de ses messages, question au chef d'orchestre (réponse renvoyée à l'agent).
+// ce bus par une socket Unix privée (tube nommé `\\.\pipe\nexus-<aléa>` sous Windows), avec un jeton propre à sa
+// tâche. Outils : état de l'équipe, message à un coéquipier ou à tous, lecture de ses messages, question au chef
+// d'orchestre (réponse renvoyée à l'agent).
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
@@ -19,7 +20,7 @@ export type BusHandlers = {
 
 /** Serveur MCP minimal (aucune dépendance), exécuté par la CLI de l'agent. */
 export const MCP_SCRIPT = String.raw`"use strict";
-// Serveur MCP « nexus » : relaie les outils de l'équipe vers Nexus AI (socket Unix + jeton de la tâche).
+// Serveur MCP « nexus » : relaie les outils de l'équipe vers Nexus AI (socket Unix ou tube nommé + jeton de la tâche).
 const net = require("net");
 const readline = require("readline");
 const SOCKET = process.env.NEXUS_BUS_SOCKET, TOKEN = process.env.NEXUS_BUS_TOKEN;
@@ -69,21 +70,48 @@ export class TeamBus {
     this.#handlers = handlers;
   }
 
-  /** Démarre la socket (dossier privé 0700, chemin court) et écrit le script MCP. */
+  /** Vrai une fois `start` réussi : sinon `register` ne fournit aucun serveur MCP (ne pas annoncer les outils). */
+  get available(): boolean {
+    return this.#listening;
+  }
+  #listening = false;
+
+  /**
+   * Démarre le transport et écrit le script MCP. Unix : socket dans un dossier privé 0700 (chemin court).
+   * Windows : tube nommé au nom aléatoire (l'accès reste conditionné au jeton de la tâche).
+   * Rejette avec une erreur explicite si le transport ne peut pas écouter ; le bus reste alors indisponible.
+   */
   async start(scriptDir: string): Promise<void> {
     if (this.#server) return;
     mkdirSync(scriptDir, { recursive: true, mode: 0o700 });
-    this.#script = join(scriptDir, "nexus-team-mcp.cjs");
-    writeFileSync(this.#script, MCP_SCRIPT, { mode: 0o600 });
-    this.#dir = mkdtempSync(join(tmpdir(), "nexus-bus-"));
-    chmodSync(this.#dir, 0o700);
-    this.socketPath = join(this.#dir, "bus.sock");
-    this.#server = createServer((s) => this.#serve(s));
-    await new Promise<void>((resolve, reject) => {
-      this.#server!.once("error", reject);
-      this.#server!.listen(this.socketPath, () => resolve());
-    });
-    chmodSync(this.socketPath, 0o600);
+    const script = join(scriptDir, "nexus-team-mcp.cjs");
+    writeFileSync(script, MCP_SCRIPT, { mode: 0o600 });
+    let path: string;
+    if (process.platform === "win32") {
+      path = `\\\\.\\pipe\\nexus-${randomBytes(16).toString("hex")}`;
+    } else {
+      this.#dir = mkdtempSync(join(tmpdir(), "nexus-bus-"));
+      chmodSync(this.#dir, 0o700);
+      path = join(this.#dir, "bus.sock");
+    }
+    const server = createServer((s) => this.#serve(s));
+    this.#server = server;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(path, () => resolve());
+      });
+      if (process.platform !== "win32") chmodSync(path, 0o600);
+    } catch (e) {
+      server.close();
+      this.#server = undefined;
+      if (this.#dir) rmSync(this.#dir, { recursive: true, force: true });
+      this.#dir = undefined;
+      throw new Error(`team bus: transport unavailable (${(e as NodeJS.ErrnoException).code ?? (e as Error).message})`);
+    }
+    this.#script = script;
+    this.socketPath = path;
+    this.#listening = true;
   }
 
   #serve(s: Socket): void {
@@ -153,8 +181,12 @@ export class TeamBus {
   }
 
   async close(): Promise<void> {
+    this.#listening = false;
+    this.socketPath = undefined;
     for (const s of this.#sockets) s.destroy();
     await new Promise<void>((r) => (this.#server ? this.#server.close(() => r()) : r()));
+    this.#server = undefined;
     if (this.#dir) rmSync(this.#dir, { recursive: true, force: true });
+    this.#dir = undefined;
   }
 }

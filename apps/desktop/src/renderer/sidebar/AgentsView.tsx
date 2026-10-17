@@ -18,6 +18,7 @@ import { NON_AGENT_TOOLS, type SessionSummary } from "../types.ts";
 import { Button, EmptyState, ErrorNotice, IconButton, Kbd, SectionTitle, Skeleton, cx } from "../ui/primitives.tsx";
 import { openSession, useDockState } from "../workbench/dock.ts";
 import { AgentChip } from "../ui/AgentChip.tsx";
+import { AgentSetup, RescanButton } from "../ui/AgentSetup.tsx";
 import { agentName } from "../ui/AgentAvatar.tsx";
 
 const MODE_ICONS = { autonomous: Zap, sandboxed: Shield, supervised: Hand, other: Bot } as const;
@@ -249,9 +250,13 @@ export function AgentsView() {
           (q ? (
             <p className="px-4 py-3 text-[12px] text-fg-subtle">{t("agents.noMatch")}</p>
           ) : (
-            <EmptyState icon={<Bot size={24} />} title={t("agents.emptyTitle")}>
-              {t("agents.emptyBody")}
-            </EmptyState>
+            <>
+              <EmptyState icon={<Bot size={24} />} title={t("agents.emptyTitle")}>
+                {t("agents.emptyBody")}
+              </EmptyState>
+              {/* Aucun agent installé : pas de cul-de-sac, on montre comment en installer un. */}
+              {inventory.data && installed.length === 0 && <AgentSetup className="px-3 pb-3" />}
+            </>
           ))}
         {groups.map(([bucket, items]) => (
           <section key={bucket} aria-label={t(`agents.bucket.${bucket}`)}>
@@ -266,7 +271,10 @@ export function AgentsView() {
         <p className="section-subtitle !px-0 !pt-0">{t("agents.detected")}</p>
         {inventory.loading && !inventory.data && <Skeleton lines={1} />}
         {inventory.data && installed.length === 0 && (
-          <p className="text-[12px] text-fg-subtle">{t("agents.noneDetected")}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[12px] text-fg-subtle">{t("agents.noneDetected")}</p>
+            <RescanButton />
+          </div>
         )}
         <div className="flex flex-wrap gap-1">
           {installed.map((p) => (

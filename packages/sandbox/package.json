@@ -1,6 +1,6 @@
 {
   "name": "@nexus/sandbox",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Isolation Linux des agents : bubblewrap, seccomp, cgroups v2, proxy egress en liste blanche (ADR-001, T-014).",
   "type": "module",

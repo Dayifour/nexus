@@ -259,3 +259,19 @@ test("probe et authStatus via la fausse CLI : version, compte, stockage, jeton j
   });
   assert.equal((await fx3.broker({ ghPath: out.path }).authStatus()).state, "unauthenticated");
 });
+
+test("push refusé si la config locale du dépôt définit une commande (core.sshCommand) : rien n'est lancé", async (t) => {
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const fx = await makeFixture(t);
+  const { plan } = await prepared(fx);
+  const broker = fx.broker();
+  const id = await approval(fx, "git_push", plan.approvalPlan);
+  const marker = join(fx.repo, "..", "ssh-marker");
+  execFileSync("git", ["-C", fx.repo, "config", "--local", "core.sshCommand", `touch ${marker}`]);
+  await assert.rejects(broker.push(fx.repo, plan, id), code("plan_blocked"));
+  assert.equal(pushCalls(fx).length, 0);
+  assert.equal(existsSync(marker), false);
+  assert.equal(await bareHead(fx, "feature/x"), null);
+});

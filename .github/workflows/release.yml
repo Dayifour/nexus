@@ -55,6 +55,9 @@ jobs:
 
   release:
     needs: build
+    # Windows et macOS restent expérimentaux : une plateforme en échec ne doit pas priver les autres de leur Release.
+    # On publie dès qu'au moins une construction a réussi (les fichiers absents sont simplement ignorés).
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

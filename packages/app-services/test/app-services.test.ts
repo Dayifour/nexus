@@ -72,9 +72,6 @@ async function setup(t: TestContext, dialogs: { save?: string; open?: string } =
     `#!/usr/bin/env node\nconst fs=require('fs');if(process.argv[2]==='--version'){console.log('fakeagent 1.2.3');process.exit(0)}\nconst p=fs.readFileSync(0,'utf8');fs.mkdirSync('backend',{recursive:true});fs.writeFileSync('backend/api.js','// '+p.split('\\n')[0]+'\\n');console.log('écrit backend/api.js');\n`,
   );
   chmodSync(join(bin, "fakeagent"), 0o755);
-  // Fausse CLI vercel : affiche l'URL de déploiement (la vraie CLI n'est pas installée sur cet hôte).
-  writeFileSync(join(bin, "vercel"), `#!/bin/sh\necho "https://stock-preview-abc.vercel.app"\n`);
-  chmodSync(join(bin, "vercel"), 0o755);
   const fake = new GenericCliConnector(
     {
       signature: {
@@ -140,7 +137,7 @@ test("tous les canaux du contrat ont un handler", async (t) => {
   assert.deepEqual(missing, []);
 });
 
-test("parcours UC-02 complet : projet, équipe, mission, tâche dans un worktree isolé, revue, diff, événements", async (t) => {
+test("parcours UC-02 complet : projet, session avec validation dans un worktree isolé, revue, diff, événements", async (t) => {
   const { repo, call, events } = await setup(t);
   const caps = await call("app.capabilities", {});
   assert.equal(caps.secrets.available, true);
@@ -149,40 +146,16 @@ test("parcours UC-02 complet : projet, équipe, mission, tâche dans un worktree
   assert.equal(inventory.find((p) => p.connectorId === "fake-agent")?.version, "1.2.3");
 
   const project = await call("projects.create", { name: "Stock", rootPath: repo });
-  const team = await call("teams.create", { projectId: project.projectId, name: "Produit", governanceMode: "MANUAL" });
-  const withAgent = await call("teams.addAgent", {
-    teamId: team.teamId,
-    agent: {
-      role: "Backend",
-      displayName: "Fake",
-      connectorId: "fake-agent",
-      permissionMode: "manual",
-      authMode: "local-none",
-      capabilities: ["edit"],
-    },
-  });
-  const agentId = withAgent.members[0]!.agentId;
-  const mission = await call("missions.create", {
+  const task = await call("sessions.start", {
     projectId: project.projectId,
-    teamId: team.teamId,
-    title: "API",
-    prompt: "Écrire l'API",
+    connectorId: "fake-agent",
+    prompt: "API produits\nCRUD",
+    mode: "supervised",
   });
-  const task = await call("tasks.add", {
-    missionId: mission.missionId,
-    task: {
-      title: "API produits",
-      description: "CRUD",
-      allowedPaths: ["backend"],
-      acceptance: ["fichier créé"],
-      dependsOn: [],
-      assignedAgentId: agentId,
-    },
-  });
-  await call("tasks.start", { taskId: task.taskId, resume: false });
-  await until(
-    async () => (await call("missions.tasks", { missionId: mission.missionId }))[0]!.status === "waiting_review",
-  );
+  const session = async () =>
+    (await call("sessions.list", { projectId: project.projectId })).find((s) => s.taskId === task.taskId);
+  await until(async () => (await session())?.status === "waiting_review");
+  assert.equal((await session())?.prompt, "API produits\nCRUD", "consigne initiale servie avec la session");
 
   // ADR-008 : le dépôt principal n'est pas modifié ; le travail est dans le worktree de la tâche.
   assert.equal(existsSync(join(repo, "backend", "api.js")), false, "aucune écriture dans le dépôt principal");
@@ -208,44 +181,21 @@ test("parcours UC-02 complet : projet, équipe, mission, tâche dans un worktree
   assert.equal(usage.source, "unavailable", "CLI générique sans compteur : indisponible, jamais 0 inventé (AC-10)");
 });
 
-test("tâche qui écrit dans un projet non Git : refus explicite (ADR-008)", async (t) => {
+test("session isolée dans un projet non Git : refus explicite (ADR-008)", async (t) => {
   const { root, call } = await setup(t);
   const plain = join(root, "plain");
   mkdirSync(plain);
   const project = await call("projects.create", { name: "Plain", rootPath: plain });
-  const team = await call("teams.create", { projectId: project.projectId, name: "T", governanceMode: "MANUAL" });
-  const tm = await call("teams.addAgent", {
-    teamId: team.teamId,
-    agent: {
-      role: "Dev",
-      displayName: "F",
+  await assert.rejects(
+    call("sessions.start", {
+      projectId: project.projectId,
       connectorId: "fake-agent",
-      permissionMode: "manual",
-      authMode: "local-none",
-      capabilities: ["edit"],
-    },
-  });
-  const mission = await call("missions.create", {
-    projectId: project.projectId,
-    teamId: team.teamId,
-    title: "x",
-    prompt: "x",
-  });
-  const task = await call("tasks.add", {
-    missionId: mission.missionId,
-    task: {
-      title: "x",
-      description: "",
-      allowedPaths: ["src"],
-      acceptance: ["x"],
-      dependsOn: [],
-      assignedAgentId: tm.members[0]!.agentId,
-    },
-  });
-  await call("tasks.start", { taskId: task.taskId, resume: false });
-  await new Promise((r) => setTimeout(r, 500));
-  const after = (await call("missions.tasks", { missionId: mission.missionId }))[0]!;
-  assert.notEqual(after.status, "running");
+      prompt: "x",
+      mode: "supervised",
+    }),
+    (e: unknown) => e instanceof ExposedError && e.code === "invalid_request",
+  );
+  assert.deepEqual(await call("sessions.list", { projectId: project.projectId }), []);
   assert.equal(existsSync(join(plain, "backend")), false);
 });
 
@@ -273,7 +223,7 @@ test("fichiers : traversée refusée, identifiants jamais servis, .env servi par
   assert.equal(readFileSync(join(repo, "docs", "notes.md"), "utf8"), "ok");
 });
 
-test("secrets : valeur jamais renvoyée ; diagrammes et statut Git servis", async (t) => {
+test("secrets : valeur jamais renvoyée ; statut Git servi", async (t) => {
   const { repo, call } = await setup(t);
   const meta = await call("secrets.set", {
     ref: "openai:main",
@@ -287,28 +237,6 @@ test("secrets : valeur jamais renvoyée ; diagrammes et statut Git servis", asyn
   const status = await call("git.status", { projectId: project.projectId });
   assert.equal(status.available, true);
   assert.equal(status.branch, "main");
-  const diagram = await call("diagrams.generate", { projectId: project.projectId });
-  assert.match(diagram.flowchart, /flowchart/);
-  assert.match(diagram.markdown, /Hypoth/);
-  assert.ok(!diagram.markdown.includes("FIXTURE_ENV"), "le .env n'est jamais lu par l'analyse");
-});
-
-test("sandbox au choix : agent sous abonnement en sandbox-auto accepté via IPC", async (t) => {
-  const { repo, call } = await setup(t);
-  const project = await call("projects.create", { name: "Stock", rootPath: repo });
-  const team = await call("teams.create", { projectId: project.projectId, name: "T", governanceMode: "MANUAL" });
-  const res = await call("teams.addAgent", {
-    teamId: team.teamId,
-    agent: {
-      role: "Dev",
-      displayName: "Claude",
-      connectorId: "claude-cli",
-      permissionMode: "sandbox-auto",
-      authMode: "vendor-login",
-      capabilities: ["edit"],
-    },
-  });
-  assert.equal(res.members[0]?.permissionMode, "sandbox-auto");
 });
 
 test("voix AC-11 via IPC : moteurs non configurés indisponibles, micro accordé seulement après armement, envoi sans relecture refusé", async (t) => {
@@ -358,48 +286,4 @@ test("FR-025 via IPC : export vers le chemin choisi (0600), annulation sans écr
   const cancelled = await setup(t);
   const p2 = await cancelled.call("projects.create", { name: "Autre", rootPath: cancelled.repo });
   assert.deepEqual(await cancelled.call("projects.export", { projectId: p2.projectId }), { path: null, events: 1 });
-});
-
-test("UC-07 via IPC : déploiement préparé, refusé sans approbation, exécuté une seule fois après approbation", async (t) => {
-  const { repo, call } = await setup(t);
-  writeFileSync(
-    join(repo, "package.json"),
-    JSON.stringify({ name: "stock", scripts: { build: "vite build" }, devDependencies: { vite: "8.0.0" } }),
-  );
-  const project = await call("projects.create", { name: "Stock", rootPath: repo });
-  const prep = await call("deploy.prepare", { projectId: project.projectId, environment: "preview" });
-  assert.equal(prep.framework, "vite");
-  assert.equal(prep.cliAvailable, true);
-  assert.ok(prep.approvalId);
-  await assert.rejects(
-    call("deploy.run", { approvalId: prep.approvalId! }),
-    (e: unknown) => e instanceof ExposedError && e.code === "policy_denied",
-    "pas de déploiement sans approbation",
-  );
-  const prep2 = await call("deploy.prepare", { projectId: project.projectId, environment: "preview" });
-  await call("approvals.respond", { approvalId: prep2.approvalId!, decision: "allow" });
-  const r = await call("deploy.run", { approvalId: prep2.approvalId! });
-  assert.deepEqual(r, { url: "https://stock-preview-abc.vercel.app", environment: "preview" });
-  await assert.rejects(
-    call("deploy.run", { approvalId: prep2.approvalId! }),
-    (e: unknown) => e instanceof ExposedError && e.code === "not_found",
-    "usage unique",
-  );
-});
-
-test("UC-06 via IPC : push vers un remote au protocole non autorisé refusé dès la préparation", async (t) => {
-  const { root, repo, call } = await setup(t);
-  const bare = join(root, "remote.git");
-  execFileSync("git", ["init", "-q", "--bare", bare]);
-  execFileSync("git", ["remote", "add", "origin", bare], { cwd: repo });
-  const project = await call("projects.create", { name: "Stock", rootPath: repo });
-  await assert.rejects(
-    call("git.preparePush", { projectId: project.projectId, branch: "main", remote: "origin" }),
-    (e: unknown) => e instanceof ExposedError,
-  );
-  assert.equal(
-    (await call("approvals.list", { projectId: project.projectId })).length,
-    0,
-    "aucune approbation créée pour un plan refusé",
-  );
 });

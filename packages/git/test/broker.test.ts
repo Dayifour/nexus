@@ -1,7 +1,7 @@
 // Git broker sur de vrais dépôts temporaires : worktrees isolés, concurrence, conflits (AC-03), merge approuvé.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitBroker, isGitError, type GitErrorCode } from "../src/index.ts";
 import { AUTHOR, g, GIT, head, makeRepo, write } from "./helpers.ts";
@@ -345,4 +345,77 @@ test("diff : secrets détectés sur la valeur réelle et masqués dans le texte 
   ]);
   assert.ok(!d.unified.includes(token));
   assert.ok(!JSON.stringify(d.secrets).includes(token));
+});
+
+// ------------------------------------------------------------------ config du dépôt contrôlée par l'agent
+
+test("filtre clean malveillant dans la config du dépôt : commitAll refuse, aucune commande exécutée", async (t) => {
+  const fx = await makeRepo(t);
+  const wt = await fx.broker.createTaskWorktree(fx.repo, "T-F", "main");
+  const marker = join(fx.root, "PWNED");
+  // Config légitime courante (husky) : neutralisée par -c, n'empêche pas le commit.
+  await g(fx, fx.repo, "config", "core.hooksPath", ".husky");
+  write(wt.path, "ok.txt", "ok\n");
+  await fx.broker.commitAll(wt.path, "ok", AUTHOR);
+
+  await g(fx, fx.repo, "config", "filter.pwn.clean", `touch ${marker}; cat`);
+  write(wt.path, ".gitattributes", "* filter=pwn\n");
+  write(wt.path, "src/app.txt", "modifié par l'agent\n");
+  await rejectsWith(fx.broker.commitAll(wt.path, "tâche", AUTHOR), "UNSAFE_REPO_CONFIG");
+  await rejectsWith(fx.broker.status(wt.path), "UNSAFE_REPO_CONFIG");
+  await rejectsWith(fx.broker.diff(wt.path), "UNSAFE_REPO_CONFIG");
+  await rejectsWith(fx.broker.createTaskWorktree(fx.repo, "T-G", "main"), "UNSAFE_REPO_CONFIG");
+  assert.equal(existsSync(marker), false, "le filtre n'a jamais été lancé par le broker");
+
+  // Contrôle (rouge sans la vérification) : git brut exécute bien le filtre sur l'hôte.
+  await g(fx, wt.path, "add", "--all");
+  assert.equal(existsSync(marker), true);
+});
+
+test("include et config de worktree : refusés (UNSAFE_REPO_CONFIG)", async (t) => {
+  const fx = await makeRepo(t);
+  const wt = await fx.broker.createTaskWorktree(fx.repo, "T-I", "main");
+  const marker = join(fx.root, "PWNED");
+  const inc = join(fx.root, "evil.inc");
+  write(fx.root, "evil.inc", `[filter "x"]\n\tsmudge = touch ${marker}; cat\n`);
+  await g(fx, fx.repo, "config", "include.path", inc);
+  await rejectsWith(fx.broker.commitAll(wt.path, "m", AUTHOR), "UNSAFE_REPO_CONFIG");
+  await g(fx, fx.repo, "config", "--unset", "include.path");
+
+  await g(fx, fx.repo, "config", "extensions.worktreeConfig", "true");
+  await g(fx, wt.path, "config", "--worktree", "merge.x.driver", `touch ${marker}`);
+  write(wt.path, "a.txt", "a\n");
+  await rejectsWith(fx.broker.commitAll(wt.path, "m", AUTHOR), "UNSAFE_REPO_CONFIG");
+  // Le dépôt principal n'est pas concerné par la config propre au worktree.
+  assert.equal((await fx.broker.status(fx.repo)).clean, true);
+  assert.equal(existsSync(marker), false);
+});
+
+test("pointeur gitdir falsifié dans un worktree de tâche : refusé", async (t) => {
+  const fx = await makeRepo(t);
+  const a = await fx.broker.createTaskWorktree(fx.repo, "T-A", "main");
+  const b = await fx.broker.createTaskWorktree(fx.repo, "T-B", "main");
+  const pointerA = readFileSync(join(a.path, ".git"), "utf8");
+  const pointerB = readFileSync(join(b.path, ".git"), "utf8");
+
+  // 1. Pointeur vers le gitdir d'un autre worktree : le pointeur retour ne correspond pas.
+  writeFileSync(join(a.path, ".git"), pointerB);
+  write(a.path, "x.txt", "x\n");
+  await rejectsWith(fx.broker.commitAll(a.path, "m", AUTHOR), "NOT_TASK_WORKTREE");
+
+  // 2. Pointeur vers un gitdir fabriqué dans le worktree (commondir contrôlé par l'agent).
+  const fake = join(a.path, ".fake");
+  await g(fx, fx.root, "init", "--quiet", "--bare", fake);
+  write(fake, "worktrees/x/HEAD", "ref: refs/heads/nexus/task-T-A\n");
+  write(fake, "worktrees/x/commondir", "../..\n");
+  write(fake, "worktrees/x/gitdir", `${join(a.path, ".git")}\n`);
+  writeFileSync(join(a.path, ".git"), `gitdir: ${join(fake, "worktrees", "x")}\n`);
+  await assert.rejects(fx.broker.commitAll(a.path, "m", AUTHOR), (e: unknown) => {
+    assert.ok(isGitError(e, "NOT_TASK_WORKTREE") || isGitError(e, "NOT_A_REPOSITORY"), String(e));
+    return true;
+  });
+
+  // Pointeur restauré : le worktree est de nouveau accepté.
+  writeFileSync(join(a.path, ".git"), pointerA);
+  await fx.broker.commitAll(a.path, "m", AUTHOR);
 });

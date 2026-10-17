@@ -15,7 +15,8 @@ mkdirSync(join(projectDir, ".git"), { recursive: true });
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
-    args: [appDir],
+    // Interface en français (libellés vérifiés ci-dessous), quelle que soit la langue du système du runner.
+    args: [appDir, "--lang=fr"],
     cwd: appDir,
     env: { ...process.env, NEXUS_USER_DATA_DIR: join(dataDir, "userdata") },
   });

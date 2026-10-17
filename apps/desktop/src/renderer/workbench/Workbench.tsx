@@ -2,7 +2,6 @@
 // ancrable (dockview) et barre d'état.
 import * as DM from "@radix-ui/react-dropdown-menu";
 import {
-  Bell,
   Bot,
   ChevronDown,
   Files,
@@ -12,7 +11,6 @@ import {
   Gauge,
   GitBranch,
   LogOut,
-  Network,
   OctagonX,
   PanelBottom,
   PanelLeft,
@@ -34,11 +32,9 @@ import { runCommand } from "../lib/commands.ts";
 import { useChordState } from "../lib/keybindings.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { formatQuota, quotaTone } from "../lib/quota.ts";
-import { useApprovalsStore } from "../stores/approvals.ts";
 import { useAppStore, type SidebarView } from "../stores/app.ts";
 import { useFilesStore } from "../stores/files.ts";
 import { useGitStore } from "../stores/git.ts";
-import { useMissionsStore } from "../stores/missions.ts";
 import { useOrchestraStore } from "../stores/orchestra.ts";
 import { useProjectStore } from "../stores/project.ts";
 import { ACTIVE_STATUSES, useSessionsStore } from "../stores/sessions.ts";
@@ -47,7 +43,6 @@ import { Kbd, Tip, cx } from "../ui/primitives.tsx";
 import { AgentsView } from "../sidebar/AgentsView.tsx";
 import { OrchestraView } from "../sidebar/OrchestraView.tsx";
 import { Explorer } from "../sidebar/Explorer.tsx";
-import { MissionsView } from "../sidebar/MissionsView.tsx";
 import { SearchView } from "../sidebar/SearchView.tsx";
 import { SourceControl } from "../sidebar/SourceControl.tsx";
 import { openView, toggleBottomPanel, useDockState } from "./dock.ts";
@@ -57,7 +52,7 @@ import { agentName } from "../ui/AgentAvatar.tsx";
 const VIEWS: Array<{
   id: SidebarView;
   icon: typeof Files;
-  label: "view.orchestra" | "view.explorer" | "view.search" | "view.scm" | "view.agents" | "view.missions";
+  label: "view.orchestra" | "view.explorer" | "view.search" | "view.scm" | "view.agents";
   shortcut?: string;
 }> = [
   { id: "orchestra", icon: Orbit, label: "view.orchestra" },
@@ -65,7 +60,6 @@ const VIEWS: Array<{
   { id: "search", icon: Search, label: "view.search", shortcut: "mod+shift+f" },
   { id: "scm", icon: GitBranch, label: "view.scm", shortcut: "mod+shift+g" },
   { id: "agents", icon: Bot, label: "view.agents", shortcut: "mod+shift+d" },
-  { id: "missions", icon: Network, label: "view.missions" },
 ];
 
 function TitleBar() {
@@ -225,6 +219,11 @@ function ActivityBar() {
         </Tip>
       ))}
       <div className="flex-1" />
+      <Tip label={t("view.usage")} side="right">
+        <button type="button" className="activity-item" aria-label={t("view.usage")} onClick={() => openView("usage")}>
+          <Gauge size={20} strokeWidth={1.6} />
+        </button>
+      </Tip>
       <Tip label={t("view.deployment")} side="right">
         <button
           type="button"
@@ -292,7 +291,6 @@ function Sidebar() {
       {view === "search" && <SearchView />}
       {view === "scm" && <SourceControl />}
       {view === "agents" && <AgentsView />}
-      {view === "missions" && <MissionsView />}
       <div
         className="sidebar-resizer"
         role="separator"
@@ -360,7 +358,6 @@ function StatusBar() {
   const caps = useAppStore((s) => s.capabilities.data);
   const running = useSessionsStore((s) => s.list.data?.filter((x) => ACTIVE_STATUSES.has(x.status)).length ?? 0);
   const review = useSessionsStore((s) => s.list.data?.filter((x) => x.status === "waiting_review").length ?? 0);
-  const approvals = useApprovalsStore((s) => s.list.data?.filter((a) => a.status === "pending").length ?? 0);
   const terminals = useTerminalsStore((s) => Object.values(s.byPanel).filter((x) => x.status === "running").length);
   const watching = useFilesStore((s) => s.watching);
   const quotas = useSessionsStore((s) => s.quotas);
@@ -414,16 +411,6 @@ function StatusBar() {
       >
         {lang.toUpperCase()}
       </button>
-      <button
-        type="button"
-        className="status-item"
-        onClick={() => openView("approvals")}
-        aria-label={t("sb.notifications", { n: approvals })}
-        title={t("sb.notifications", { n: approvals })}
-      >
-        <Bell size={12} aria-hidden />
-        {approvals > 0 && <span className="status-pill status-pill-warn">{approvals}</span>}
-      </button>
     </footer>
   );
 }
@@ -436,8 +423,6 @@ function useProjectLifecycle(projectId: string): void {
     void useGitStore.getState().refresh();
     void useSessionsStore.getState().refresh();
     void useOrchestraStore.getState().refresh();
-    void useMissionsStore.getState().refresh(projectId);
-    void useApprovalsStore.getState().refresh();
     void useAppStore.getState().loadDiagnostics();
     void useProjectStore.getState().loadRecent();
     // Rafraîchissement périodique léger de la liste des sessions (en plus des événements poussés).

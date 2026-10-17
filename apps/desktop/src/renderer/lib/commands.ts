@@ -37,21 +37,17 @@ import {
   Gauge,
   Maximize2,
   Moon,
-  Network,
   OctagonX,
   PanelBottom,
   PanelLeft,
   RefreshCw,
-  Rocket,
   Save,
   Search,
   Settings,
-  ShieldCheck,
   SquareTerminal,
   Sun,
   Monitor,
   Upload,
-  Users,
   X,
   Archive,
   LogOut,
@@ -67,6 +63,7 @@ import { usePrDialog } from "../overlays/CreatePrDialog.tsx";
 import { ACTIVE_STATUSES, useSessionsStore } from "../stores/sessions.ts";
 import { canResume, deleteSession, openSessionTerminal, resumeSessionTerminal } from "./agent-terminal.ts";
 import { terminalControls, type TerminalControls } from "../stores/terminals.ts";
+import { isMac } from "./shortcuts.ts";
 import {
   activePanel,
   closeActive,
@@ -209,7 +206,7 @@ export const COMMANDS: CommandDef[] = [
     category: "cat.project",
     icon: LogOut,
     needsProject: true,
-    run: () => useProjectStore.getState().close(),
+    run: () => void useProjectStore.getState().close(),
   },
 
   {
@@ -352,14 +349,6 @@ export const COMMANDS: CommandDef[] = [
     run: () => app().showView("agents"),
   },
   {
-    id: "view.missions",
-    title: "cmd.viewMissions",
-    category: "cat.view",
-    icon: Network,
-    needsProject: true,
-    run: () => app().showView("missions"),
-  },
-  {
     id: "toggleSidebar",
     title: "cmd.toggleSidebar",
     category: "cat.view",
@@ -485,7 +474,8 @@ export const COMMANDS: CommandDef[] = [
     title: "cmd.terminalClear",
     category: "cat.terminal",
     icon: Eraser,
-    shortcut: "mod+k",
+    // Cmd+K sur macOS seulement : sous Linux/Windows, Ctrl+K appartient au shell (readline, TUI des agents).
+    ...(isMac && { shortcut: "mod+k" }),
     when: "terminal",
     terminalPassthrough: true,
     needsProject: true,
@@ -703,31 +693,6 @@ export const COMMANDS: CommandDef[] = [
     icon: RefreshCw,
     needsProject: true,
     run: () => useGitStore.getState().refresh(),
-  },
-  {
-    id: "view.delivery",
-    title: "cmd.delivery",
-    category: "cat.scm",
-    icon: Rocket,
-    needsProject: true,
-    run: () => openView("delivery"),
-  },
-
-  {
-    id: "view.approvals",
-    title: "cmd.approvals",
-    category: "cat.advanced",
-    icon: ShieldCheck,
-    needsProject: true,
-    run: () => openView("approvals"),
-  },
-  {
-    id: "view.teams",
-    title: "cmd.teams",
-    category: "cat.advanced",
-    icon: Users,
-    needsProject: true,
-    run: () => openView("teams"),
   },
   {
     id: "view.deployment",

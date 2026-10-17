@@ -1,6 +1,6 @@
 {
   "name": "@nexus/git",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Git broker : worktrees par tâche, diff borné, revue, merge approuvé, scanner de secrets et plan de push (T-016).",
   "type": "module",

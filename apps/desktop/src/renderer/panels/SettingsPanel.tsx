@@ -18,8 +18,10 @@ import {
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useT, useTd } from "../i18n/index.ts";
+import { call } from "../api.ts";
 import { errorText } from "../lib/actions.ts";
 import { useAppStore, type ThemePref } from "../stores/app.ts";
+import { useProjectStore } from "../stores/project.ts";
 import { useSecretsStore } from "../stores/secrets.ts";
 import type { AppSettings, SessionMode } from "../types.ts";
 import { confirmAction } from "../ui/dialog.tsx";
@@ -512,6 +514,48 @@ function Voice({ settings, served }: { settings: AppSettings; served: boolean })
   );
 }
 
+/** Protection des `.env*` du projet ouvert (décision D-4 : visibles par défaut, protection activable par projet). */
+function EnvProtection() {
+  const t = useT();
+  const project = useProjectStore((s) => s.current);
+  const [on, setOn] = useState<boolean | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const projectId = project?.projectId;
+  useEffect(() => {
+    setOn(undefined);
+    if (!projectId) return;
+    let live = true;
+    call("projects.get", { projectId })
+      .then((p) => live && setOn(p.protectEnvFiles))
+      .catch(() => live && setOn(false));
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
+  if (!projectId) return <p className="setting-hint mb-4">{t("settings.envProtect.noProject")}</p>;
+  return (
+    <Row title={t("settings.envProtect.title")} hint={t("settings.envProtect.hint")}>
+      <input
+        type="checkbox"
+        aria-label={t("settings.envProtect.title")}
+        checked={on ?? false}
+        disabled={on === undefined || busy}
+        onChange={(e) => {
+          const protect = e.target.checked;
+          setBusy(true);
+          call("projects.setEnvProtection", { projectId, protect })
+            .then(() => {
+              setOn(protect);
+              toast.success(t(protect ? "settings.envProtect.enabled" : "settings.envProtect.disabled"));
+            })
+            .catch((err: unknown) => toast.error(errorText(err)))
+            .finally(() => setBusy(false));
+        }}
+      />
+    </Row>
+  );
+}
+
 function Sandbox({ settings, served }: { settings: AppSettings; served: boolean }) {
   const t = useT();
   const save = useAppStore((s) => s.saveSettings);
@@ -520,6 +564,7 @@ function Sandbox({ settings, served }: { settings: AppSettings; served: boolean 
   const valid = /^[a-z0-9.-]{1,253}:\d{1,5}$/.test(host);
   return (
     <>
+      <EnvProtection />
       <section className="mb-4">
         {caps.data ? (
           <div className="flex flex-wrap gap-2 items-center">

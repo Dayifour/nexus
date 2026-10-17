@@ -12,12 +12,15 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SandboxProfile } from "@nexus/contracts";
 import {
+  buildBwrapArgs,
   createSandboxedRunner,
+  gitMetadataPaths,
   isForbiddenAddress,
   proxyBridgePath,
   probeSandbox,
@@ -273,6 +276,71 @@ sb(
     );
   },
 );
+
+const hostGit = (cwd: string, ...args: string[]) =>
+  execFileSync("/usr/bin/git", args, {
+    cwd,
+    env: { HOME: cwd, GIT_CONFIG_NOSYSTEM: "1", LANG: "C", PATH: "/usr/bin:/bin" },
+    encoding: "utf8",
+  });
+function gitRepo(dir: string) {
+  hostGit(dir, "init", "--quiet", "-b", "main");
+  hostGit(dir, "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "--quiet", "--allow-empty", "-m", "i");
+}
+
+sb("git : .git du workspace en lecture seule (config, hooks, renommage) ; git lisible dans le sandbox", async (t) => {
+  const { ws } = fixture(t);
+  gitRepo(ws);
+  const before = readFileSync(join(ws, ".git", "config"), "utf8");
+  const { json } = await inSandbox(
+    profile(ws),
+    `${TRY} const cp=require('child_process');
+     const git=(...a)=>{try{return cp.execFileSync('/usr/bin/git',a,{cwd:'/workspace',encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim()}catch(e){return 'ERR:'+e.status}};
+     const tryRename=()=>{try{fs.renameSync('/workspace/.git','/workspace/g2');return 'RENAMED'}catch(e){return e.code}};
+     const tryRm=()=>{try{fs.rmSync('/workspace/.git',{recursive:true});return 'REMOVED'}catch(e){return e.code}};
+     console.log(JSON.stringify({ config: tryWrite('/workspace/.git/config'), hook: tryWrite('/workspace/.git/hooks/pre-commit'),
+       head: tryRead('/workspace/.git/HEAD'), rename: tryRename(), rm: tryRm(), file: tryWrite('/workspace/f.txt'),
+       log: git('log','--format=%s'), status: git('status','--porcelain') }))`,
+  );
+  assert.equal(json.config, "EROFS");
+  assert.equal(json.hook, "EROFS");
+  assert.equal(json.head, "READ:ref: refs/heads/main");
+  assert.ok(["EBUSY", "EROFS", "EXDEV"].includes(json.rename), json.rename);
+  assert.notEqual(json.rm, "REMOVED");
+  assert.equal(json.file, "WROTE", "le reste du workspace reste inscriptible");
+  assert.equal(json.log, "i", "git lisible dans le sandbox");
+  assert.ok(String(json.status).includes("f.txt"), String(json.status));
+  assert.equal(readFileSync(join(ws, ".git", "config"), "utf8"), before);
+  assert.ok(existsSync(join(ws, ".git", "HEAD")));
+});
+
+sb("git : pointeur .git d'un worktree, gitdir et commondir en lecture seule s'ils sont montés", async (t) => {
+  const { root } = fixture(t);
+  const main = join(root, "main");
+  const wt = join(root, "wt");
+  mkdirSync(main);
+  gitRepo(main);
+  hostGit(main, "worktree", "add", "--quiet", "-b", "task", wt);
+  const meta = gitMetadataPaths(wt);
+  assert.deepEqual(meta.sort(), [join(main, ".git"), join(main, ".git", "worktrees", "wt"), join(wt, ".git")].sort());
+  // Dépôt principal monté en écriture (ex. extraWritable) : ses métadonnées sont recouvertes en lecture seule.
+  const p = profile(wt, { writableBinds: [[main, main]] });
+  assert.deepEqual(
+    buildBwrapArgs(p).gitReadOnly.sort(),
+    ["/workspace/.git", join(main, ".git"), join(main, ".git", "worktrees", "wt")].sort(),
+  );
+  const pointer = readFileSync(join(wt, ".git"), "utf8");
+  const { json } = await inSandbox(
+    p,
+    `${TRY} console.log(JSON.stringify({ pointer: tryWrite('/workspace/.git'),
+       cfg: tryWrite(${JSON.stringify(join(main, ".git", "config"))}),
+       wtcfg: tryWrite(${JSON.stringify(join(main, ".git", "worktrees", "wt", "config.worktree"))}),
+       mainFile: tryWrite(${JSON.stringify(join(main, "x.txt"))}) }))`,
+  );
+  assert.deepEqual([json.pointer, json.cfg, json.wtcfg], ["EROFS", "EROFS", "EROFS"]);
+  assert.equal(json.mainFile, "WROTE");
+  assert.equal(readFileSync(join(wt, ".git"), "utf8"), pointer);
+});
 
 test("capacités insuffisantes : exécution refusée (sandbox_unavailable), jamais simulée", async (t) => {
   const { ws } = fixture(t);

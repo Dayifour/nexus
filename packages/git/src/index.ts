@@ -1,6 +1,7 @@
 export {
   GitBroker,
   locateGit,
+  unsafeConfigKeys,
   type DiffOptions,
   type DiffResult,
   type GitBrokerOptions,

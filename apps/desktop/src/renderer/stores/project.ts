@@ -7,6 +7,7 @@ import { useEditorsStore } from "./editors.ts";
 import { useFilesStore } from "./files.ts";
 import { useGitStore } from "./git.ts";
 import { useSessionsStore } from "./sessions.ts";
+import { useRunsStore } from "./runs.ts";
 import { useOrchestraStore } from "./orchestra.ts";
 import { done, failed, pending } from "./util.ts";
 
@@ -17,6 +18,17 @@ function resetProjectStores(projectId: string | undefined): void {
   useGitStore.getState().reset(projectId);
   useSessionsStore.getState().reset(projectId);
   useOrchestraStore.getState().reset(projectId);
+  useRunsStore.getState().evictRuns();
+}
+
+/**
+ * Garde avant de quitter le projet courant (fermeture, changement) : renvoie faux pour annuler. Posée par l'interface
+ * (question sur les éditeurs modifiés) ; le store n'importe pas l'interface.
+ */
+type LeaveGuard = (action: "close" | "switch") => Promise<boolean>;
+let leaveGuard: LeaveGuard = async () => true;
+export function setProjectLeaveGuard(guard: LeaveGuard): void {
+  leaveGuard = guard;
 }
 
 interface ProjectState {
@@ -26,9 +38,11 @@ interface ProjectState {
   loadRecent(): Promise<void>;
   /** Ouvre le dossier `rootPath` (absolu) ; lève une NexusError en cas de refus. */
   openPath(rootPath: string): Promise<ProjectSummary>;
-  openProject(project: ProjectSummary): void;
+  /** Ouvre `project` ; faux si l'utilisateur a annulé (modifications non enregistrées du projet courant). */
+  openProject(project: ProjectSummary): Promise<boolean>;
   importArchive(): Promise<ProjectSummary | undefined>;
-  close(): void;
+  /** Ferme le projet ; faux si l'utilisateur a annulé (modifications non enregistrées). */
+  close(): Promise<boolean>;
 }
 
 const trimSlash = (p: string) => (p.length > 1 ? p.replace(/[\\/]+$/, "") : p);
@@ -73,28 +87,35 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
           existing ??
           (await call("projects.create", { name: baseName(path).slice(0, 200) || "project", rootPath: path }));
       }
-      get().openProject(project);
+      await get().openProject(project);
       return project;
     } finally {
       set({ opening: false });
     }
   },
-  openProject(project) {
-    if (get().current?.projectId !== project.projectId) resetProjectStores(project.projectId);
+  async openProject(project) {
+    const current = get().current;
+    if (current?.projectId !== project.projectId) {
+      if (current && !(await leaveGuard("switch"))) return false;
+      resetProjectStores(project.projectId);
+    }
     set({ current: project });
     document.title = `${project.name} — Nexus AI`;
+    return true;
   },
   async importArchive() {
     const { projectId } = await call("projects.import", {});
     if (!projectId) return undefined;
     const project = (await call("projects.list", {})).find((p) => p.projectId === projectId);
-    if (project) get().openProject(project);
+    if (project) await get().openProject(project);
     return project;
   },
-  close() {
+  async close() {
+    if (get().current && !(await leaveGuard("close"))) return false;
     set({ current: undefined });
     resetProjectStores(undefined);
     document.title = "Nexus AI";
     void get().loadRecent();
+    return true;
   },
 }));
