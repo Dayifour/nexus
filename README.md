@@ -4,7 +4,7 @@
 > Code) in a real IDE, one at a time or as a team: a conductor agent plans the work, the others build it in parallel in
 > an isolated copy, talk to each other while they code, get reviewed, and you merge the result.
 
-**Status: preview 0.1.0 — Linux is the verified platform.** Windows and macOS builds are produced but experimental:
+**Status: preview 0.2.0 — Linux is the verified platform.** Windows and macOS builds are produced but experimental:
 no sandbox, and process/terminal behaviour has not been verified on real machines. Details:
 [`.coordination/STATUS.md`](.coordination/STATUS.md) · [release notes](docs/RELEASE_NOTES.md) ·
 [user guide (FR)](docs/USER_GUIDE.md) · [architecture](docs/ARCHITECTURE.md).
@@ -36,9 +36,9 @@ automatically (the onboarding screen shows the install command of each one).
 | Agent CLI | Status |
 |---|---|
 | Claude Code (`claude`) | verified with real runs (sessions, terminal, Orchestra conductor, team bus) |
-| Codex CLI (`codex`) | verified with real runs (sessions, terminal, Orchestra member, team bus) |
+| Codex CLI (`codex`) | verified with real runs (sessions, terminal, Orchestra conductor and member, team bus) |
 | OpenCode (`opencode`) | verified with real runs (sessions, team bus) |
-| Hermes (`hermes`) | verified with real runs (sessions); cannot be a read-only Orchestra conductor |
+| Hermes (`hermes`) | verified with real runs (sessions, native resume, read-only Orchestra conductor, team bus); terminal status from its hooks |
 | Gemini CLI (`gemini`) | adapter ready, **never run for real yet** |
 | Qwen Code (`qwen`) | adapter ready, **never run for real yet** |
 | API models (OpenAI, Anthropic, Google, OpenRouter) | chat only (no tool use), tested on fixtures, unverified with real keys |

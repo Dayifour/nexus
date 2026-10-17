@@ -84,14 +84,19 @@ Windows: `taskkill /T /F` on the tree. macOS and Windows paths are written but u
 | Sandboxed (opt-in) | `sandbox-auto` | Git worktree, run through `sandbox-run.ts` |
 
 Broadcast (`sessions.startMany`) starts the same prompt on 2–6 agents, each in its own worktree. CLI adapters normalize
-output to `AgentEvent`; Claude gets a fresh session id per run; Claude hook events drive the working/idle status.
+output to `AgentEvent`; Claude gets a fresh session id per run; Claude hook events drive the working/idle status;
+Hermes gets the same through shell hooks (`pre_llm_call`/`post_tool_call` → working, `pre_approval_request` → needs input,
+`on_session_end` → idle) declared in a per-session managed scope (`HERMES_MANAGED_DIR`), auto-accepted only when the user's
+config declares no hooks of its own; other CLIs fall back to terminal activity.
 
 ## 6. Orchestra and team bus
 
 `packages/app-services/src/orchestra.ts`:
 
 1. **Plan** — the lead (conductor) runs **read-only**: Claude/Codex natively, Gemini/Qwen with `--approval-mode plan`,
-   OpenCode with `--agent plan`. A CLI without a read-only mode (Hermes) is refused as lead (`supportsReadOnly`).
+   OpenCode with `--agent plan`, Hermes with read-only toolsets (`-t file,web,vision,todo,session_search`: no terminal,
+   code execution, delegation, browser, memory or skills) and `HERMES_WRITE_SAFE_ROOT=/dev/null`, which makes Hermes'
+   file tools refuse every write/patch/delete. A CLI without a read-only mode is refused as lead (`supportsReadOnly`).
 2. **Graph** — the plan becomes tasks with dependencies (DAG in `core`); optional plan approval (`orchestra.approvePlan`).
 3. **Run** — independent tasks run in parallel in **one shared isolated worktree** per mission; each task receives the reports
    and changes of its dependencies.
@@ -103,7 +108,14 @@ output to `AgentEvent`; Claude gets a fresh session id per run; Claude hook even
 **Team bus** (`team-bus.ts`): an MCP server named `nexus` is injected into each supported agent with the tools
 `team_status`, `send_message`, `read_messages`, `ask_lead`. Transport: Unix socket in a private `0700` directory, or a
 Windows named pipe `\\.\pipe\nexus-<random>`; each task has its own token, so an agent cannot impersonate another. The bus is
-not available to sandboxed agents (the socket is not mounted); they only get hand-offs through their prompt.
+not available to sandboxed agents (the socket is not mounted); they only get hand-offs through their prompt. The token never
+appears in argv: Claude, Gemini, Qwen and OpenCode read a `0600` temporary settings file; Codex gets
+`-c mcp_servers.nexus.{command,args,env_vars,...}` (no secret) while the socket and token travel in its process environment
+(`env_vars` forwards them to the MCP server; the user's `CODEX_HOME` and login are untouched); Hermes gets a per-run
+`HERMES_HOME` (`<userData>/agent-runtime/hermes-*/profiles/nexus`, `0700`) made of symlinks to every entry of the user's
+Hermes home except `config.yaml`, which is a `0600` copy with the `nexus` server added (Hermes only starts MCP discovery
+when the raw config declares servers). Sessions, login, memory and history stay in the real home; new top-level entries
+created during the run are moved back, then the directory is deleted.
 
 ## 7. Sandbox (Linux)
 

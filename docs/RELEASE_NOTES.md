@@ -1,6 +1,18 @@
-# Notes de version — Nexus AI 0.1.0 (préversion)
+# Notes de version — Nexus AI 0.2.0 (préversion)
 
 *English version below.*
+
+## Nouveautés de la 0.2.0
+
+- **Hermes branché comme les autres agents** : bus de l'équipe, chef d'orchestre ou relecteur en lecture seule
+  (outils limités, écriture refusée), reprise native de session, état en direct par ses hooks. La configuration Hermes de
+  l'utilisateur n'est jamais modifiée : chaque exécution utilise une configuration superposée temporaire.
+- **Codex sur le bus de l'équipe** (serveur MCP `nexus` passé en `-c`, jeton dans l'environnement, jamais dans la ligne de
+  commande). Les six CLI peuvent désormais se parler dans l'orchestre.
+- Bus de l'équipe annoncé aux agents seulement s'il a réellement démarré ; erreur de démarrage journalisée.
+- Interface : nettoyage de l'ancien modèle Missions/Équipes, thèmes clair/sombre conformes WCAG AA, protection des `.env`
+  réglable par projet, robustesse des runs (échecs non relançables, reprise des tâches interrompues).
+- Tests E2E de la palette fiabilisés sur les machines lentes (CI).
 
 **Statut : préversion, Linux vérifié.** Les versions Windows et macOS sont construites par le workflow de publication mais
 restent expérimentales. Licence Apache-2.0 appliquée (`LICENSE`, `NOTICE`, « Copyright 2026 Dayifour »).
@@ -27,10 +39,10 @@ ne les remplace pas : il les lance, les isole, les orchestre, relaie leurs messa
 ## Agents
 
 - Vérifiés en réel (hors sandbox et dans la sandbox) : **Claude Code, Codex CLI, OpenCode, Hermes**. Bus de l'équipe vérifié
-  avec Claude, Codex et OpenCode.
+  avec Claude, Codex, OpenCode et Hermes.
 - **Gemini CLI et Qwen Code** : adaptateurs prêts, jamais lancés en réel.
 - Lecture seule imposée par CLI pour le chef d'orchestre : Gemini/Qwen `--approval-mode plan`, OpenCode `--agent plan` ;
-  Hermes ne peut pas être chef (pas de mode lecture seule). Claude : nouvel identifiant de session à chaque exécution.
+  Hermes : outils en lecture seule et racine d'écriture neutralisée. Claude : nouvel identifiant de session à chaque exécution.
 - API OpenAI / Anthropic / Google / OpenRouter : conversation seulement (aucun outil), non vérifiées avec de vraies clés.
 
 ## Sécurité
@@ -53,11 +65,19 @@ ne les remplace pas : il les lance, les isole, les orchestre, relaie leurs messa
 - PR GitHub et hébergeurs de déploiement : vérifiés uniquement contre des faux (`gh` simulé, API simulées).
 - Dictée : exige whisper.cpp ou un consentement cloud explicite ; jamais exécutée en réel.
 - Messagerie entre agents indisponible pour les agents en sandbox.
-- Protection des `.env` par projet : présente dans le moteur, sans réglage dans l'interface.
+- Chemins réservés aux tâches de l'orchestre : conflits empêchés à la planification, mais une écriture hors zone n'est pas
+  encore bloquée.
+- Hermes : état en direct vérifié en mode non interactif, pas encore dans son terminal interactif.
 
 ---
 
-# Release notes — Nexus AI 0.1.0 (preview)
+# Release notes — Nexus AI 0.2.0 (preview)
+
+**New in 0.2.0.** Hermes is wired like the other agents: team bus, read-only Orchestra conductor or reviewer, native
+session resume, live status from its hooks, without ever modifying the user's Hermes configuration (per-run overlay).
+Codex joins the team bus (token passed in the environment, never in argv), so all six CLIs can talk to each other. The bus
+is advertised only when it actually started. Old Missions/Teams model removed, WCAG AA light/dark themes, per-project
+`.env` protection switch, more robust runs, palette E2E tests hardened for slow CI machines.
 
 **Status: preview, Linux verified.** Windows and macOS builds are produced by the release workflow but are experimental.
 Apache-2.0 licence applied.
@@ -72,7 +92,7 @@ restart); IDE workspace (explorer, Monaco, terminals, Git, PRs via `gh`); deploy
 Hostinger VPS, MongoDB Atlas, step by step with confirmation); usage view; light/dark/system themes; French/English with
 first-run language from the OS; onboarding with install commands.
 
-**Agents.** Verified for real: Claude Code, Codex CLI, OpenCode, Hermes. Pending: Gemini CLI, Qwen Code (never run for
+**Agents.** Verified for real: Claude Code, Codex CLI, OpenCode, Hermes (team bus verified with all four). Pending: Gemini CLI, Qwen Code (never run for
 real). API connectors are chat-only and unverified with real keys.
 
 **Security.** Strict production CSP, Zod-validated IPC, no shell; per-platform kill boundary (Linux verified; macOS process
@@ -81,5 +101,5 @@ command-defining repo configs (also on push); team bus over a private Unix socke
 unsaved-changes guard, agent-terminal close confirmation; asar reduced from 146 MB to 18 MB.
 
 **Known limits.** No sandbox on Windows/macOS; `.rpm` built but untested; GitHub PR and deploy providers verified only
-against fakes; voice dictation never run for real; no team bus for sandboxed agents; no UI switch for per-project `.env`
-protection.
+against fakes; voice dictation never run for real; no team bus for sandboxed agents; Orchestra task paths are checked at planning time
+but out-of-path writes are not blocked yet; Hermes live status not yet verified in its interactive terminal.

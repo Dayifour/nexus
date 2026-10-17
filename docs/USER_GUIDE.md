@@ -89,13 +89,14 @@ le même dossier).
 
 1. **Lancer un orchestre** (vue Orchestres) : écrire l'objectif.
 2. Choisir le **chef d'orchestre** : il planifie et relit **en lecture seule** (Claude, Codex ; Gemini/Qwen via
-   `--approval-mode plan`, OpenCode via `--agent plan`). Hermes n'a pas de mode lecture seule : il ne peut pas être chef.
+   `--approval-mode plan`, OpenCode via `--agent plan`, Hermes avec des outils sans écriture ni terminal et toute écriture
+   de fichier refusée).
 3. Choisir les **agents de l'équipe** (6 au maximum), le mode (copie isolée par défaut) et l'**autonomie** : *Totale* ou
    *Je valide le plan*.
 4. Le chef découpe l'objectif en tâches avec dépendances (DAG). Les tâches indépendantes tournent **en parallèle dans une
    copie commune isolée**. Chaque agent reçoit le rapport et les changements des tâches dont il dépend.
-5. Pendant le travail, les agents se parlent par le bus MCP `nexus` : `team_status`, `send_message`, `read_messages`,
-   `ask_lead`. Vous pouvez aussi écrire au chef à tout moment.
+5. Pendant le travail, les agents (Claude, Codex, Gemini, Qwen, OpenCode, Hermes) se parlent par le bus MCP `nexus` :
+   `team_status`, `send_message`, `read_messages`, `ask_lead`. Vous pouvez aussi écrire au chef à tout moment.
 6. Le chef **relit** chaque résultat (diff + critères) : accepté ou renvoyé avec des corrections précises. Un agent qui
    échoue (non connecté, erreur) voit ses tâches réattribuées, avec la raison affichée.
 7. **Intégrer au projet** : fusion de la copie dans votre projet, après confirmation. **Terminal dans la copie** pour
