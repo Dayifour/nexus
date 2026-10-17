@@ -1,0 +1,11 @@
+# Fins de ligne LF dans l'arbre de travail sur toutes les plateformes : oxfmt (pnpm run lint) exige LF,
+# et Git pour Windows convertit sinon en CRLF au checkout (core.autocrlf=true).
+* text=auto eol=lf
+
+# Fichiers versionnés avec des CRLF volontaires : conservés tels quels.
+LICENSE -text
+packages/connectors-api/test/fixtures/google.sse -text
+
+# Binaires
+*.docx binary
+*.pdf binary

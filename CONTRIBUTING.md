@@ -16,6 +16,7 @@ Nexus AI is currently a source-first preview. Please read the project status in 
 - Node.js `24.18.x` (the supported range is defined in `package.json`)
 - pnpm `11.10.x` (the exact version is declared through `packageManager`)
 - Linux is the primary development and verification platform. Sandbox tests additionally require Bubblewrap (`bwrap`) and unprivileged user namespaces.
+- Line endings are LF, enforced by `.gitattributes` regardless of `core.autocrlf`. On Windows, a clone made before `.gitattributes` existed may still have CRLF files that fail `pnpm run lint`; with no uncommitted changes, run `git rm --cached -r -q . && git reset --hard` to check them out again with LF.
 
 Clone your fork, add the upstream remote, and create a focused branch:
 
