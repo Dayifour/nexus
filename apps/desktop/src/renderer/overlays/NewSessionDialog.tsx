@@ -391,8 +391,10 @@ export function NewSessionDialog() {
                         <span className="mode-desc">{t(`mode.${id}.desc`)}</span>
                         {compareBlocked ? (
                           <span className="mode-warn">{t("newSession.compareNoAutonomous")}</span>
+                        ) : disabled ? (
+                          <span className="mode-warn">{t("newSession.sandboxUnusable")}</span>
                         ) : (
-                          disabled && <span className="mode-warn">{t("newSession.sandboxUnusable")}</span>
+                          id === "autonomous" && <span className="mode-warn">{t("mode.autonomous.warn")}</span>
                         )}
                       </button>
                     );

@@ -504,6 +504,7 @@ export const en: Record<keyof typeof fr, string> = {
   "mode.supervised": "With review",
   "mode.other": "Other",
   "mode.autonomous.desc": "The agent works directly in your project's code, without asking.",
+  "mode.autonomous.warn": "No isolation: the agent has the same rights as you on the whole machine.",
   "mode.sandboxed.desc":
     "The agent works isolated: a copy of the project, network limited to its provider. Its provider login (e.g. ~/.claude) is shared with it so it can work.",
   "mode.supervised.desc": "The agent proposes changes; you accept them or request fixes.",

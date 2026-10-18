@@ -518,6 +518,7 @@ export const fr = {
   "mode.supervised": "Avec validation",
   "mode.other": "Autre",
   "mode.autonomous.desc": "L'agent agit directement dans le code de votre projet, sans vous demander.",
+  "mode.autonomous.warn": "Aucune isolation : l'agent a les mêmes droits que vous sur toute la machine.",
   "mode.sandboxed.desc":
     "L'agent travaille isolé : copie du projet, réseau limité à son fournisseur. Sa connexion au fournisseur (ex. ~/.claude) est partagée avec lui pour qu'il fonctionne.",
   "mode.supervised.desc": "L'agent propose ses changements ; vous les acceptez ou demandez des corrections.",

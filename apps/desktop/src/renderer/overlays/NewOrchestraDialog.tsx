@@ -271,6 +271,7 @@ export function NewOrchestraDialog() {
                         </span>
                         <span className="mode-title">{t(`mode.${id}`)}</span>
                         <span className="mode-desc">{t(`mode.${id}.desc`)}</span>
+                        {id === "autonomous" && <span className="mode-warn">{t("mode.autonomous.warn")}</span>}
                         {id === "sandboxed" && <span className="mode-warn">{t("orch.sandboxNoBus")}</span>}
                         {disabled && <span className="mode-warn">{t("newSession.sandboxUnusable")}</span>}
                       </button>
