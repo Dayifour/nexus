@@ -81,6 +81,7 @@ function asPushEvent(raw: unknown): IpcPushEvent | undefined {
     return raw as IpcPushEvent;
   }
   if (e.type === "fs" && typeof e.projectId === "string" && Array.isArray(e.changes)) return raw as IpcPushEvent;
+  if (e.type === "system-theme" && typeof e.dark === "boolean") return raw as IpcPushEvent;
   if (
     e.type === "run" &&
     typeof e.taskId === "string" &&

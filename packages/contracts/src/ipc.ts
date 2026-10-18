@@ -155,6 +155,11 @@ export const IpcPushEvent = z.discriminatedUnion("type", [
   }),
   /** Demande d'ouverture d'une session (ex. clic sur une notification). */
   z.strictObject({ type: z.literal("navigate"), taskId: Id }),
+  /**
+   * Apparence du système (thème « Système ») : `prefers-color-scheme` ne suit pas toujours un changement de
+   * `nativeTheme.themeSource` dans une fenêtre déjà ouverte (constaté sous macOS), le main fait donc foi.
+   */
+  z.strictObject({ type: z.literal("system-theme"), dark: z.boolean() }),
   /** Changements dans l'arborescence d'un projet surveillé. */
   z.strictObject({
     type: z.literal("fs"),

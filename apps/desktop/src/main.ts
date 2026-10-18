@@ -177,7 +177,14 @@ function applyNativeTheme(): void {
   for (const w of BrowserWindow.getAllWindows()) {
     w.setBackgroundColor(WINDOW_COLORS[resolvedTheme()].bg);
     if (process.platform !== "darwin") w.setTitleBarOverlay(titleBarColors());
+    sendSystemTheme(w);
   }
+}
+
+/** Thème « Système » : apparence réelle de l'OS envoyée au renderer (voir l'événement `system-theme`). */
+function sendSystemTheme(w: BrowserWindow): void {
+  if ((services?.settings.get().theme ?? "dark") !== "system" || w.webContents.isLoading()) return;
+  w.webContents.send(IPC_EVENT_CHANNEL, { type: "system-theme", dark: nativeTheme.shouldUseDarkColors });
 }
 
 const createWindow = (): BrowserWindow => {
@@ -211,6 +218,7 @@ const createWindow = (): BrowserWindow => {
     },
   });
 
+  mainWindow.webContents.on("did-finish-load", () => sendSystemTheme(mainWindow));
   if (devServerUrl) {
     void mainWindow.loadURL(devServerUrl);
   } else {

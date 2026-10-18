@@ -2,6 +2,7 @@
 // événements de domaine (rafraîchissements regroupés pour qu'une rafale ne déclenche qu'un appel par cible).
 import type { IpcPushEvent } from "@nexus/contracts";
 import { subscribe } from "../api.ts";
+import { setSystemAppearance } from "../stores/app.ts";
 import { useDeployPlanStore } from "../stores/deployPlan.ts";
 import { useEditorsStore } from "../stores/editors.ts";
 import { tNow, type TKey } from "../i18n/index.ts";
@@ -44,6 +45,9 @@ export function handlePushEvent(event: IpcPushEvent): void {
     case "terminal-exit":
       terminalBus.emitExit(event.terminalId, event.exitCode);
       logEvent("info", "terminal", `exit ${event.exitCode ?? "?"} (${event.terminalId.slice(0, 8)})`);
+      return;
+    case "system-theme":
+      setSystemAppearance(event.dark);
       return;
     case "fs": {
       if (event.projectId !== projectId) return;
