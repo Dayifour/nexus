@@ -506,8 +506,15 @@ export class Orchestra {
   /** Lance (ou relance) la boucle de l'orchestre en arrière-plan. */
   async #launch(missionId: string, root: string): Promise<void> {
     // Bus indisponible (transport refusé) : l'orchestre continue sans messagerie, sans l'annoncer aux agents.
+    // Sans bus, l'équipe travaille quand même (transmission par consigne) : l'utilisateur en est informé.
     await this.#bus.start(join(this.#svc.userDataDir, "mcp")).catch((e: unknown) => {
-      console.warn(`[orchestra] bus d'équipe indisponible : ${e instanceof Error ? e.message : String(e)}`);
+      const reason = e instanceof Error ? e.message : String(e);
+      console.warn(`[orchestra] bus d'équipe indisponible : ${reason}`);
+      this.#feed(missionId, {
+        kind: "info",
+        text: `Messagerie de l'équipe indisponible (${reason.slice(0, 120)}) : les agents travaillent sans échanges directs.`,
+        from: "Nexus",
+      });
     });
     const abort = new AbortController();
     this.#live.set(missionId, { abort });
@@ -999,6 +1006,8 @@ export class Orchestra {
           ].join("\n")
         : "",
       "Termine par un court compte rendu : fichiers créés/modifiés, choix importants, ce que les autres doivent savoir.",
+      // Le compte rendu est affiché à l'utilisateur.
+      this.#langLine(),
     ]
       .filter(Boolean)
       .join("\n\n");

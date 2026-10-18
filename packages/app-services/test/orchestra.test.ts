@@ -327,6 +327,38 @@ test("bus de l'équipe : serveur MCP réel (stdio JSON-RPC) → socket → messa
   assert.match(denied.result.content[0].text, /jeton/);
 });
 
+test("bus de l'équipe : échec de démarrage sans état à moitié démarré, aucun serveur MCP distribué, réessai possible", async (t) => {
+  if (process.platform === "win32") return t.skip("socket Unix : tube nommé sous Windows");
+  const { TeamBus } = await import("../src/team-bus.ts");
+  const dir = mkdtempSync(join(tmpdir(), "nexus-bus-fail-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bus = new TeamBus({
+    status: async () => "",
+    send: async () => "",
+    read: async () => "",
+    ask: async () => "",
+  });
+  t.after(() => bus.close());
+  const id = { missionId: "m", taskId: "t1", role: "Claude Code" };
+  // Chemin de socket au-delà de la limite du système (sun_path) : listen échoue réellement.
+  const long = join(dir, "x".repeat(120));
+  mkdirSync(long);
+  const saved = process.env.TMPDIR;
+  process.env.TMPDIR = long;
+  try {
+    await assert.rejects(bus.start(join(dir, "mcp")));
+  } finally {
+    if (saved === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = saved;
+  }
+  assert.equal(bus.available, false);
+  assert.equal(bus.socketPath, undefined);
+  assert.equal(bus.register(id), undefined, "aucun agent ne reçoit un serveur MCP vers un bus mort");
+  await bus.start(join(dir, "mcp"));
+  assert.equal(bus.available, true);
+  assert.ok(bus.register(id));
+});
+
 test("Orchestre : fichiers modifiés par l'équipe puis intégration au projet (merge)", async (t) => {
   const { repo, call } = await setup(t);
   const p = await call("projects.open", { rootPath: repo });

@@ -92,6 +92,10 @@ test("IA qui pilote : prompt borné ; réponse validée, étape auto inventée r
   const prompt = buildLeadPrompt(p, base, "Je veux Hostinger pour le back");
   assert.match(prompt, /Je veux Hostinger pour le back/);
   assert.match(prompt, /N'exécutes AUCUNE commande|n'exécutes AUCUNE commande/);
+  assert.match(prompt, /en français\.$/m, "langue par défaut : français");
+  const en = buildLeadPrompt(p, base, undefined, "en");
+  assert.match(en, /in English\.$/m);
+  assert.doesNotMatch(en, /en français/, "aucune consigne contradictoire");
   const { origin: _o, ...first } = base[1]!;
   const custom = {
     ...first,

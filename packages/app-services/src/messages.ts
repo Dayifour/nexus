@@ -271,6 +271,10 @@ const CATALOG: Array<[string, string]> = [
   ["Objectif atteint.", "Goal achieved."],
   ["Terminé avec des tâches en échec.", "Finished with failed tasks."],
   ["Orchestre arrêté par l'utilisateur.", "Orchestra stopped by the user."],
+  [
+    "Messagerie de l'équipe indisponible ({}) : les agents travaillent sans échanges directs.",
+    "Team messaging unavailable ({}): agents work without direct exchanges.",
+  ],
   ["L'orchestre s'est arrêté sur une erreur.", "The orchestra stopped on an error."],
   ["Le plan proposé par le chef n'est pas exploitable.", "The conductor's plan is not usable."],
   ["Plan invalide : {}", "Invalid plan: {}"],
