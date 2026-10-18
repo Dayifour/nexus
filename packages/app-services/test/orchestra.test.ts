@@ -519,8 +519,10 @@ test("M7 : mode d'exécution choisi par tâche, même si deux tâches partagent 
   svc.setMissionWorkspace(mission.missionId, repo);
   const ws = await svc.workspaceFor(tS!);
   assert.equal(await svc.workspaceFor(tM!), ws, "dossier partagé");
+  // /bin/true n'existe pas sous macOS (seulement /usr/bin/true).
+  const trueBin = ["/usr/bin/true", "/bin/true"].find((f) => existsSync(f))!;
   const run = (taskId: string) =>
-    svc.runFor({ file: "/bin/true", args: [], cwd: ws, env: {}, timeoutMs: 5000 }, { taskId });
+    svc.runFor({ file: trueBin, args: [], cwd: ws, env: {}, timeoutMs: 5000 }, { taskId });
   assert.equal(
     (await run(tS!)).spawnError,
     "sandbox_unavailable",

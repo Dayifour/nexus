@@ -9,6 +9,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -80,7 +81,8 @@ async function setup(
   t: TestContext,
   opts: { sandbox?: SandboxCapabilities; confirm?: (m: string, d: string) => Promise<boolean> } = {},
 ) {
-  const root = mkdtempSync(join(tmpdir(), "nexus-ws-"));
+  // realpath : sous macOS, tmpdir() passe par le lien /var -> /private/var, que les chemins renvoyés résolvent.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "nexus-ws-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = join(root, "repo");
   const home = join(root, "home");

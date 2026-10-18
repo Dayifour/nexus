@@ -1,6 +1,6 @@
 // Cycle de vie des processus (repris et étendu du spike T-001).
 // Sans user namespaces (ex. runners CI restreints par AppArmor), la suite ÉCHOUE au lieu d'être ignorée,
-// sauf déclaration explicite NEXUS_ALLOW_NO_USERNS=1.
+// sauf déclaration explicite NEXUS_ALLOW_NO_USERNS=1. Hors Linux, seuls les tests propres au PID namespace sont ignorés.
 import { before, test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,15 +18,25 @@ import {
 
 const ESCAPER = fileURLToPath(new URL("./fixtures/escaper.mjs", import.meta.url));
 const SUPERVISOR_PARENT = fileURLToPath(new URL("./fixtures/supervisor-parent.ts", import.meta.url));
-let pidns = { usable: false, parentDeath: false } as { usable: boolean; reason?: string; parentDeath: boolean };
+let pidns = { usable: false, parentDeath: false } as {
+  usable: boolean;
+  reason?: string;
+  boundary?: string;
+  parentDeath: boolean;
+};
 before(async () => {
   pidns = await probeKillBoundary();
   if (!pidns.usable && process.env.NEXUS_ALLOW_NO_USERNS !== "1") {
     throw new Error(`PID namespace indisponible (${pidns.reason}) : refus, pas de faux vert`);
   }
 });
+// Preuves propres au PID namespace : ailleurs, la frontière de la plateforme (groupe ou arbre) est plus faible.
 const ns = (name: string, fn: (t: TestContext) => Promise<void>) =>
-  test(name, (t) => (pidns.usable ? fn(t) : t.skip(`pid namespace: ${pidns.reason}`)));
+  test(name, (t) =>
+    pidns.usable && pidns.boundary === "pid-namespace"
+      ? fn(t)
+      : t.skip(`pid namespace: ${pidns.reason ?? `frontière ${pidns.boundary}`}`),
+  );
 
 function tmp(t: TestContext): string {
   const dir = mkdtempSync(join(tmpdir(), "nexus-ps-"));
@@ -79,7 +89,10 @@ ns("environnement explicite : aucune variable du parent ne fuit", async (t) => {
 });
 
 test("frontière process-group refusée sans déclaration explicite ; frontière inconnue refusée", async (t) => {
-  await assert.rejects(run({ args: ["-v"], cwd: tmp(t), killBoundary: "process-group" }), /insufficient/);
+  // Sous Linux seulement : ailleurs, le groupe de processus est la frontière de la plateforme.
+  if (process.platform === "linux") {
+    await assert.rejects(run({ args: ["-v"], cwd: tmp(t), killBoundary: "process-group" }), /insufficient/);
+  }
   await assert.rejects(run({ args: ["-v"], cwd: tmp(t), killBoundary: "none" as never }), /unknown killBoundary/);
 });
 

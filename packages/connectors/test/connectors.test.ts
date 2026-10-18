@@ -84,13 +84,15 @@ async function collect(it: AsyncIterable<AgentEvent>): Promise<AgentEvent[]> {
   return out;
 }
 
-const sig = (connectorId: string, name: string): CliSignature => ({
+const sig = (connectorId: string, name: string, probeTimeoutMs = 15_000): CliSignature => ({
   connectorId,
   displayName: connectorId,
   binaryNames: [name],
   versionArgs: ["--version"],
   versionPattern: /(\d+\.\d+\.\d+)/,
-  probeTimeoutMs: 1500,
+  // Marge pour le premier lancement d'un script neuf : sous macOS, la vérification système peut dépasser 5 s quand la
+  // machine est chargée (mesuré pendant la suite complète).
+  probeTimeoutMs,
   agent: true,
 });
 
@@ -118,7 +120,7 @@ test("sonde : CLI absente, présente avec version, format inconnu, code non nul,
   const hangDir = binDir(t, {});
   writeFileSync(join(hangDir, "bin", "hangcli"), `#!/bin/sh\nsleep 30\n`);
   chmodSync(join(hangDir, "bin", "hangcli"), 0o755);
-  const hang = await probeCli(sig("y", "hangcli"), { pathEnv: `${join(hangDir, "bin")}:/usr/bin:/bin` });
+  const hang = await probeCli(sig("y", "hangcli", 3000), { pathEnv: `${join(hangDir, "bin")}:/usr/bin:/bin` });
   assert.equal(hang.reason, "version_probe_timeout");
 
   const odd = binDir(t, {});
@@ -206,7 +208,9 @@ test("Claude avec validation : --restricted, dontAsk, outils limités ; environn
   assert.ok(rec.args.includes("--restricted"));
   assert.equal(rec.args[rec.args.indexOf("--permission-mode") + 1], "dontAsk");
   assert.ok(!rec.args.includes("Bash"));
-  assert.deepEqual(rec.envKeys.filter((k: string) => !["PWD", "SHLVL", "_"].includes(k)).sort(), [
+  // Ajoutées par le shell ou, sous macOS, par le système lui-même (__CF_USER_TEXT_ENCODING) : pas une fuite du parent.
+  const systemKeys = ["PWD", "SHLVL", "_", "__CF_USER_TEXT_ENCODING"];
+  assert.deepEqual(rec.envKeys.filter((k: string) => !systemKeys.includes(k)).sort(), [
     "FAKE_RECORD",
     "FAKE_SCENARIO",
     "HOME",
