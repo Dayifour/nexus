@@ -18,9 +18,9 @@ Read the [threat model](docs/threat-model/README.md) for the trust boundaries, a
 
 **Do not report security vulnerabilities in a public GitHub issue, discussion, pull request, or commit.**
 
-Nexus AI does not yet have a published, dedicated private vulnerability-reporting channel. Until one is enabled, contact the repository owner through the [Dayifour GitHub profile](https://github.com/Dayifour) and request a private reporting channel. Do not include exploit details, credentials, customer data, or proof-of-concept code in a public message.
+Report vulnerabilities privately through GitHub: **[Report a vulnerability](https://github.com/Dayifour/nexus/security/advisories/new)** (Security tab → *Report a vulnerability*). Only the maintainers can see the report. If that form is unavailable, contact the repository owner through the [Dayifour GitHub profile](https://github.com/Dayifour) and request a private channel, without including exploit details, credentials, customer data, or proof-of-concept code in any public message.
 
-When a private channel is available, include:
+Please include:
 
 - a concise description of the vulnerability and affected component;
 - reproducible steps or a minimal, non-destructive proof of concept;

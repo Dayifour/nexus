@@ -1,0 +1,82 @@
+name: Bug report
+description: Something does not work as expected in Nexus AI.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. **Security vulnerabilities must not be reported here** — follow
+        [SECURITY.md](https://github.com/Dayifour/nexus/blob/main/SECURITY.md) instead.
+        Never paste secrets, tokens or private project data.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a project…
+        2. Start a session with…
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Nexus AI version or commit
+      placeholder: "0.2.1, or a commit SHA if built from source"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Ubuntu / Debian
+        - Other Linux
+        - Windows
+        - macOS
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Release package (.deb / .rpm / .zip / installer)
+        - Built from source (pnpm start)
+    validations:
+      required: true
+  - type: checkboxes
+    id: agents
+    attributes:
+      label: Agent CLIs involved
+      options:
+        - label: Claude Code
+        - label: Codex CLI
+        - label: OpenCode
+        - label: Hermes
+        - label: Gemini CLI
+        - label: Qwen Code
+        - label: API model (OpenAI, Anthropic, Google, OpenRouter)
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Supervised (worktree, review)
+        - Autonomous
+        - Sandboxed
+        - Orchestra
+        - Not related to a session
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact anything sensitive before pasting.
+      render: shell

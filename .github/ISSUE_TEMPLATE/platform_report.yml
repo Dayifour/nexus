@@ -1,0 +1,41 @@
+name: Platform or agent test report
+description: Report the result of running Nexus AI on Windows/macOS, or with an agent CLI not yet verified.
+labels: ["platform-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Windows and macOS builds, Gemini CLI and Qwen Code have never been verified on real machines.
+        A report — even "it works" — helps a lot. Never paste secrets or private project data.
+  - type: dropdown
+    id: target
+    attributes:
+      label: What did you test?
+      options:
+        - Windows build
+        - macOS build
+        - Gemini CLI
+        - Qwen Code
+        - Other Linux distribution
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "Windows 11 23H2 x64 / macOS 15 arm64 / Fedora 41, Nexus AI 0.2.1, gemini 0.63.0…"
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What worked and what did not
+      description: Install, launch, agent detection, session, terminal, Orchestra, stopping agents…
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      render: shell

@@ -1,13 +1,32 @@
+<div align="center">
+
 # Nexus AI
 
-> **A local workshop for your AI coding agents.** Run Claude Code, Codex, OpenCode, Hermes (and soon Gemini CLI, Qwen
-> Code) in a real IDE, one at a time or as a team: a conductor agent plans the work, the others build it in parallel in
-> an isolated copy, talk to each other while they code, get reviewed, and you merge the result.
+**A local workshop for your AI coding agents.**
 
-**Status: preview 0.2.1 — Linux is the verified platform.** Windows and macOS builds are produced but experimental:
-no sandbox, and process/terminal behaviour has not been verified on real machines. Details:
-[`.coordination/STATUS.md`](.coordination/STATUS.md) · [release notes](docs/RELEASE_NOTES.md) ·
-[user guide (FR)](docs/USER_GUIDE.md) · [architecture](docs/ARCHITECTURE.md).
+Run Claude Code, Codex, OpenCode, Hermes (and soon Gemini CLI, Qwen Code) in a real IDE, one at a time or as a team:
+a conductor agent plans the work, the others build it in parallel in an isolated copy, talk to each other while they
+code, get reviewed, and you merge the result.
+
+[![CI](https://github.com/Dayifour/nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/Dayifour/nexus/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Dayifour/nexus?include_prereleases&label=release)](https://github.com/Dayifour/nexus/releases)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Good first issues](https://img.shields.io/github/issues/Dayifour/nexus/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/Dayifour/nexus/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+
+[Download](#download) · [Features](#features) · [Build from source](#build-from-source) ·
+[Contributing](#contributing) · [User guide (FR)](docs/USER_GUIDE.md) · [Architecture](docs/ARCHITECTURE.md)
+
+<img src="docs/screenshots/orchestra.jpg" alt="Nexus AI — launching an Orchestra: one goal, a conductor agent (Claude Code) and a team of Codex CLI, Hermes and OpenCode, in supervised mode" width="900">
+
+<sub>Orchestra: one goal, one conductor, a team of agents that talk to each other.</sub>
+
+</div>
+
+> [!NOTE]
+> **Status: preview 0.2.1 — Linux is the verified platform.** Windows and macOS builds are produced but experimental:
+> no sandbox, and process/terminal behaviour has not been verified on real machines. Details:
+> [`.coordination/STATUS.md`](.coordination/STATUS.md) · [release notes](docs/RELEASE_NOTES.md).
 
 ## The key principle
 
@@ -15,6 +34,28 @@ no sandbox, and process/terminal behaviour has not been verified on real machine
 Hermes keep their own models, tools, logins and subscriptions; they read and edit files with their own tools. Nexus
 launches them, **isolates** them (worktree copy, optional sandbox), **orchestrates** them (plan, task graph, hand-offs),
 **relays messages** between them, **reviews** their results and **merges** them into your project when you confirm.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/compare-agents.jpg" alt="New session dialog comparing Claude Code, Codex CLI, Hermes and OpenCode on the same instruction, in sandboxed mode"></td>
+    <td width="50%"><img src="docs/screenshots/workspace.jpg" alt="IDE workspace with file explorer, Monaco editor on an Express auth route and an integrated terminal showing git log"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Compare agents</b> — same instruction, each agent in its own isolated copy</td>
+    <td align="center"><b>IDE workspace</b> — explorer, Monaco editor, real terminals, Git</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/agent-detection.jpg" alt="Settings page listing detected agent CLIs with installed status, version and authentication state"></td>
+    <td width="50%" valign="middle">
+      <b>Agent detection</b> — Nexus finds the CLIs installed on your machine, their version and whether they are
+      signed in. No API key to paste: each agent keeps its own login and subscription.
+      <br><br>
+      <sub>Screenshots show the French UI; English is available and follows your OS language.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Download
 
@@ -74,7 +115,7 @@ kill; macOS: process group; Windows: `taskkill` tree — the last two unverified
 sandbox and host Git refuses repository configs that define commands. See the [threat model](docs/threat-model/README.md).
 
 
-The desktop workspace also includes a project explorer, Monaco editor, terminals, Git workflows, pull-request support, deployment planning, local event storage, secret handling through the OS keychain, and French/English UI and logs.
+## Build from source
 
 Requirements: Node 24.18, pnpm 11 (never npm), Linux with `bwrap`, `socat` and unprivileged user namespaces for the
 sandbox tests.
@@ -88,8 +129,26 @@ pnpm --filter @nexus/desktop run make   # build packages into apps/desktop/out/m
 
 Reproducible Linux build in Docker: `docker build -f Dockerfile.release --target export -o dist .`
 
-Publishing: [`docs/RELEASING.md`](docs/RELEASING.md) · contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) ·
-guide for coding agents: [`CLAUDE.md`](CLAUDE.md) · security: [`SECURITY.md`](SECURITY.md).
+## Contributing
+
+Nexus AI is young and there is a lot of room to make a real impact. Contributions of every size are welcome — and you
+do not need to write code to help:
+
+- **Try it and report** — run it with your agent CLIs and [open an issue](https://github.com/Dayifour/nexus/issues/new/choose)
+  for what breaks or feels wrong.
+- **Verify a platform** — Windows and macOS builds have never been confirmed on real machines; a test report is
+  extremely valuable.
+- **Run an untested agent** — Gemini CLI and Qwen Code adapters exist but have never been run for real.
+- **Translate** — the UI ships in French and English; strings live in `apps/desktop/src/renderer/i18n/`.
+- **Pick a [good first issue](https://github.com/Dayifour/nexus/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)**
+  or one labelled [help wanted](https://github.com/Dayifour/nexus/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Please follow our [Code of Conduct](CODE_OF_CONDUCT.md); report
+vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md). Accessibility commitment and known limits:
+[`ACCESSIBILITY.md`](ACCESSIBILITY.md). Publishing: [`docs/RELEASING.md`](docs/RELEASING.md) · guide for coding
+agents: [`CLAUDE.md`](CLAUDE.md).
+
+If Nexus AI is useful to you, a ⭐ on GitHub helps other developers find it.
 
 ## License and notices
 
