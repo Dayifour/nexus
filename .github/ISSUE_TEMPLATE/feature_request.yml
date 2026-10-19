@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest an idea or an improvement for Nexus AI.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you would like it to work.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sessions / compare agents
+        - Orchestra / team bus
+        - Agent CLI support (new or existing connector)
+        - Sandbox / security
+        - IDE workspace (editor, terminal, Git)
+        - Deployment planner
+        - Translations / accessibility
+        - Documentation
+        - Other
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to work on this myself.

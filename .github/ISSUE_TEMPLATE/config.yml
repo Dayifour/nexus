@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Dayifour/nexus/security/policy
+    about: Please do not report vulnerabilities in public issues.
+  - name: Read the user guide
+    url: https://github.com/Dayifour/nexus/blob/main/docs/USER_GUIDE.md
+    about: How to use sessions, Orchestra, the sandbox and the IDE workspace.
