@@ -5,6 +5,7 @@
   "description": "Nexus AI — atelier local d’orchestration d’agents.",
   "scripts": {
     "generate": "pnpm -r --if-present run generate",
+    "postinstall": "node scripts/fix-node-pty.mjs",
     "start": "pnpm --filter @nexus/desktop run start",
     "test": "pnpm run generate && node --test \"packages/*/test/**/*.test.ts\" && pnpm --filter @nexus/desktop run test",
     "test:coverage": "node --test --experimental-test-coverage \"packages/*/test/**/*.test.ts\"",

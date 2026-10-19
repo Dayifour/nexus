@@ -11,6 +11,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 
+// Hérité d'un hôte Electron (terminal de VS Code…) : ferait démarrer l'application testée comme simple Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const REAL = process.env.NEXUS_REAL_AGENTS === "1";
 const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const shots = process.env.NEXUS_E2E_SCREENSHOTS;

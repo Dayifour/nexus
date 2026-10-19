@@ -122,7 +122,12 @@ export function createDeployHandlers(
           sessionId: randomUUID(),
           agentProfileId: randomUUID(),
           workspacePath: p.rootPath,
-          prompt: buildLeadPrompt(plan.profile, rules.length ? rules : plan.proposals, req.request),
+          prompt: buildLeadPrompt(
+            plan.profile,
+            rules.length ? rules : plan.proposals,
+            req.request,
+            svc.settings.get().language,
+          ),
           contextRefs: [],
           // Lecture seule : l'IA qui pilote conseille, elle ne touche à rien.
           permissionsPolicyId: "read-only",

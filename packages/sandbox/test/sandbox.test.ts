@@ -32,7 +32,8 @@ import {
 let caps: SandboxCapabilities;
 before(async () => {
   caps = await probeSandbox();
-  if (!sandboxUsable(caps) && process.env.NEXUS_ALLOW_NO_USERNS !== "1") {
+  // Hors Linux, aucun backend n'existe : les preuves d'isolation sont ignorées, le refus d'exécution reste vérifié.
+  if (process.platform === "linux" && !sandboxUsable(caps) && process.env.NEXUS_ALLOW_NO_USERNS !== "1") {
     throw new Error(`sandbox indisponible (${caps.reasons.join("; ")}) : refus, pas de faux vert`);
   }
 });

@@ -17,6 +17,7 @@ export function buildLeadPrompt(
   profile: ProjectProfile,
   proposals: readonly DeploymentProposal[],
   request?: string,
+  language: "fr" | "en" = "fr",
 ): string {
   const providers = DeployProvider.options.map(
     (p) => `${p} (${PROVIDER_LABEL[p]}${AUTOMATED.has(p) ? ", déploiement automatique par Nexus" : ", guide manuel"})`,
@@ -41,7 +42,10 @@ export function buildLeadPrompt(
     "coûts mensuels réalistes en USD avec une réserve ; identifiants (champ id) courts en minuscules ; aucun secret ni valeur de variable.",
     "Les secrets attendus (requirements de type secret) utilisent ces noms : VERCEL_TOKEN, RENDER_API_KEY, RAILWAY_TOKEN, ATLAS_CLIENT_SECRET.",
     "",
-    'Réponds UNIQUEMENT avec un bloc ```json contenant {"advice": string (ta recommandation argumentée, en français), "proposals": [...] }',
+    'Réponds UNIQUEMENT avec un bloc ```json contenant {"advice": string (ta recommandation argumentée), "proposals": [...] }',
+    language === "en"
+      ? "Write advice and every text field (title, summary, pros, cons, steps) in English."
+      : "Rédige advice et tous les champs de texte (title, summary, pros, cons, steps) en français.",
     "où chaque proposition a exactement les champs : id, title, summary, placements, monthlyCost, complexity, pros, cons, requirements, steps.",
   ]
     .filter((l) => l !== undefined)

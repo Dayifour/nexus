@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 
+// Hérité d'un hôte Electron (terminal de VS Code…) : ferait démarrer l'application testée comme simple Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const dataDir = mkdtempSync(join(tmpdir(), "nexus-theme-e2e-"));
 let app: ElectronApplication | undefined;

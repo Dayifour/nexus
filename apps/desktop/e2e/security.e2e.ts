@@ -8,6 +8,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 
+// Hérité d'un hôte Electron (terminal de VS Code…) : ferait démarrer l'application testée comme simple Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const dataDir = mkdtempSync(join(tmpdir(), "nexus-e2e-"));
 const projectDir = join(dataDir, "demo-project");
@@ -98,6 +101,14 @@ test("CSP active dans la page : script inline et chaîne évaluée (setTimeout) 
   assert.equal(r.injected, false);
   assert.equal(r.evaluated, false);
   assert.ok(r.violations.length >= 2, `violations CSP attendues, reçues: ${JSON.stringify(r.violations)}`);
+});
+
+test("CSP de l'application empaquetée : aucune connexion autorisée hors de l'application (pas de localhost)", async () => {
+  const csp = await page.evaluate(
+    () => document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? "",
+  );
+  assert.match(csp, /connect-src 'self';/);
+  assert.doesNotMatch(csp, /localhost/);
 });
 
 test("navigation externe et ouverture de fenêtre bloquées", async () => {

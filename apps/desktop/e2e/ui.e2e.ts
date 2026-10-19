@@ -12,6 +12,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 
+// Hérité d'un hôte Electron (terminal de VS Code…) : ferait démarrer l'application testée comme simple Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const dataDir = mkdtempSync(join(tmpdir(), "nexus-ui-e2e-"));
 const projectDir = join(dataDir, "stock-app");
@@ -462,6 +465,11 @@ test("nouvelle session : agent, consigne et trois grandes cartes de mode", async
     assert.equal(await view.getByRole("radio", { name: /Terminal/ }).getAttribute("aria-checked"), "true");
     assert.equal(await view.getByRole("radio", { name: /Conversation/ }).isEnabled(), true);
   }
+  // Mode Autonome : l'absence d'isolation est annoncée sur sa carte.
+  await dialog
+    .getByTestId("mode-autonomous")
+    .getByText(/Aucune isolation/)
+    .waitFor();
   // Comparaison : multi-sélection, mode Autonome désactivé avec une explication.
   const compare = dialog.getByRole("checkbox", { name: "Comparer plusieurs agents" });
   if (await compare.isVisible().catch(() => false)) {

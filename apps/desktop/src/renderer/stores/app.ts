@@ -75,8 +75,10 @@ interface AppState {
 }
 
 const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: light)") : undefined;
+/** Apparence de l'OS donnée par le main (événement `system-theme`) ; à défaut, `prefers-color-scheme`. */
+let systemDark: boolean | undefined;
 const resolve = (theme: ThemePref): "dark" | "light" =>
-  theme === "system" ? (media?.matches ? "light" : "dark") : theme;
+  theme === "system" ? ((systemDark ?? !media?.matches) ? "dark" : "light") : theme;
 
 function applyTheme(resolved: "dark" | "light"): void {
   document.documentElement.dataset.theme = resolved;
@@ -240,13 +242,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
 // Application immédiate (avant le premier rendu) et suivi du thème système.
 applyTheme(resolve(initialTheme));
 applyLang(initialLang);
-media?.addEventListener?.("change", () => {
+function followSystemTheme(): void {
   const { theme } = useAppStore.getState();
   if (theme !== "system") return;
   const resolved = resolve(theme);
   applyTheme(resolved);
   useAppStore.setState({ resolvedTheme: resolved });
+}
+media?.addEventListener?.("change", () => {
+  systemDark = undefined; // changement observé par le renderer lui-même : plus récent que le dernier envoi du main
+  followSystemTheme();
 });
+
+/** Apparence de l'OS envoyée par le main pour le thème « Système ». */
+export function setSystemAppearance(dark: boolean): void {
+  systemDark = dark;
+  followSystemTheme();
+}
 
 /** Délai minimal entre deux détections automatiques des agents (retour sur la fenêtre). */
 const RESCAN_THROTTLE_MS = 30_000;
